@@ -33,85 +33,95 @@ use constant SHORT_TIMEOUT  =>  5;
 # Yay!
 ####################
 my $expect_ssh_key_cmd   = '[
-							-re => "continue connecting",
-							sub {
-								$session->clear_accum();
-								$session->send("yes\n"); sleep(1);
-							}
-						]';
+                            -re => "continue connecting",
+                            sub
+                            {
+                                $session->clear_accum();
+                                $session->send("yes\n"); sleep(1);
+                            }
+                        ]';
 my $expect_username_cmd  = '[
-							-re => "name:",
-							sub {
-								$session->clear_accum();
-								$session->send($self->username . "\n");
-								sleep(1);
-							}
-						]';
+                            -re => "name:",
+                            sub
+                            {
+                                $session->clear_accum();
+                                $session->send($self->username . "\n");
+                                sleep(1);
+                            }
+                        ]';
 my $expect_password_cmd = '[
-							-re => "word[.:.]",
-							sub {
-								$session->clear_accum();
-								$session->send($self->password . "\n");
-								sleep(1);
-							}
-						]';
+                            -re => "word[.:.]",
+                            sub
+                            {
+                                $session->clear_accum();
+                                $session->send($self->password . "\n");
+                                sleep(1);
+                            }
+                        ]';
 my $expect_exec_mode_cmd = '[
-							-re => ">",
-							sub {
-								$session->clear_accum();
-								$session->send("\n");
-								sleep(1);
-								$connected_to_device = TRUE;
-							}
-						]';
+                            -re => ">",
+                            sub
+                            {
+                                $session->clear_accum();
+                                $session->send("\n");
+                                sleep(1);
+                                $connected_to_device = TRUE;
+                            }
+                        ]';
 my $expect_priv_mode_cmd = '[
-							-re => "#",
-							sub {
-								$session->clear_accum();
-								$session->send("\n");
-								sleep(1);
-								$self->admin_status(TRUE);
-								$connected_to_device = TRUE;
-							}
-						]';
+                            -re => "#",
+                            sub
+                            {
+                                $session->clear_accum();
+                                $session->send("\n");
+                                sleep(1);
+                                $self->admin_status(TRUE);
+                                $connected_to_device = TRUE;
+                            }
+                        ]';
 my $expect_enable_cmd = '[
-							-re => ">",
-							sub {
-								$session->clear_accum();
-								$session->send("enable\n");
-								sleep(1);
-							}
-						]';
+                            -re => ">",
+                            sub
+                            {
+                                $session->clear_accum();
+                                $session->send("enable\n");
+                                sleep(1);
+                            }
+                        ]';
 my $expect_enable_passwd_cmd = '[
-							-re => "[Pp]assword:",
-							sub {
-								$session->clear_accum();
-								$session->send($self->enable_password . "\n");
-								sleep(1);
-							}
-						]';
+                            -re => "[Pp]assword:",
+                            sub
+                            {
+                                $session->clear_accum();
+                                $session->send($self->enable_password . "\n");
+                                sleep(1);
+                            }
+                        ]';
 my $expect_already_enabled_cmd = '[
-							-re => "#",
-							sub {
-								$session->clear_accum();
-								$session->send("\n");
-								sleep(1);
-								$already_enabled = TRUE;
-							}
-						]';
+                            -re => "#",
+                            sub
+                            {
+                                $session->clear_accum();
+                                $session->send("\n");
+                                sleep(1);
+                                $already_enabled = TRUE;
+                            }
+                        ]';
 my $expect_disable_paging_cmd = '[
-							-re => "#",
-							sub {
-								$session->clear_accum();
-								$session->send("terminal length 0\n");
-							}
-						]';
+                            -re => "#",
+                            sub
+                            {
+                                $session->clear_accum();
+                                $session->send("terminal length 0\n");
+                            }
+                        ]';
 my $expect_timeout_cmd = '[
-					timeout =>
-						sub {
-							$command_failed = TRUE;
-						}
-					]';
+                    timeout =>
+                        sub
+                        {
+                            $command_failed = TRUE;
+                        }
+                    ]';
 
 #################################################################################
 # Methods
@@ -133,19 +143,19 @@ my $expect_timeout_cmd = '[
 # If no values are defined, then default ones are assigned.
 #
 # Returns:
-#	A Net::Autoconfig::Device::Cisco object
+#   A Net::Autoconfig::Device::Cisco object
 ########################################
 sub new {
-	my $invocant = shift; # calling class
-	my $class    = ref($invocant) || $invocant;
-	my $self     = {
-					@_,
+    my $invocant = shift; # calling class
+    my $class    = ref($invocant) || $invocant;
+    my $self     = {
+                    @_,
                     invalid_cmd_regex   =>  '[iI]nvalid input detected',
-					};
-	my $log      = Log::Log4perl->get_logger('Net::Autoconfig');
+                    };
+    my $log      = Log::Log4perl->get_logger('Net::Autoconfig');
 
-	$log->debug("Creating new Net::Autoconfig::Device::Cisco");
-	return bless $self, $class;
+    $log->debug("Creating new Net::Autoconfig::Device::Cisco");
+    return bless $self, $class;
 }
 
 
@@ -159,75 +169,86 @@ sub new {
 # cisco devices.'
 ########################################
 sub connect {
-	my $self = shift;
-	my $session;              # a ref to the expect session
-	my $access_command;       # the string to use to the telnet/ssh app.
-	my $result;               # the value returned after executing an expect cmd
-	my @expect_commands;      # the commands to run on the device
-	my $spawn_cmd;            # command expect uses to connect to the device
-	my $log = Log::Log4perl->get_logger("Net::Autoconfig");
+    my $self = shift;
+    my $session;              # a ref to the expect session
+    my $access_command;       # the string to use to the telnet/ssh app.
+    my $result;               # the value returned after executing an expect cmd
+    my @expect_commands;      # the commands to run on the device
+    my $spawn_cmd;            # command expect uses to connect to the device
+    my $log = Log::Log4perl->get_logger("Net::Autoconfig");
 
-	# Expect success/failure flags
-	my $connected_to_device;      # indicates a successful connection to the device
-	my $command_failed;           # indicates a failed     connection to the device
+    # Expect success/failure flags
+    my $connected_to_device;      # indicates a successful connection to the device
+    my $command_failed;           # indicates a failed     connection to the device
 
-	# Do some sanity checking
-	if (not $self->hostname) {
-		$log->warn("No hostname defined for this device.");
-		return "No hostname defined for this devince.";
-	}
+    # Do some sanity checking
+    if (not $self->hostname)
+    {
+        $log->warn("No hostname defined for this device.");
+        return "No hostname defined for this devince.";
+    }
 
-	if (not $self->access_method) {
-		$log->warn("Access method for " . $self->hostname . " not defined.");
-		return "Access method not defined.";
-	} 
-	
-	if (not $self->access_cmd) {
-		$log->warn("Access command for " . $self->hostname . " not defined.");
-		return "Access command not defined";
-	}
+    if (not $self->access_method)
+    {
+        $log->warn("Access method for " . $self->hostname . " not defined.");
+        return "Access method not defined.";
+    } 
+    
+    if (not $self->access_cmd)
+    {
+        $log->warn("Access command for " . $self->hostname . " not defined.");
+        return "Access command not defined";
+    }
 
-	# Setup the access command
-	if ($self->access_method =~ /^ssh$/) {
-		$spawn_cmd = join(" ", $self->access_cmd, "-l", $self->username, $self->hostname);
-	}
-	else {
-		$spawn_cmd = join(" ", $self->access_cmd, $self->hostname);
-	}
+    # Setup the access command
+    if ($self->access_method =~ /^ssh$/)
+    {
+        $spawn_cmd = join(" ", $self->access_cmd, "-l", $self->username, $self->hostname);
+    }
+    else
+    {
+        $spawn_cmd = join(" ", $self->access_cmd, $self->hostname);
+    }
 
-	# Okay, let's get on with connecting to the device
-	$session = $self->session;
-	if (&_invalid_session($session)) {
-		$log->info("Connecting to " . $self->hostname);
-		$log->debug("Using command '" . $self->access_cmd . "'");
-		$log->debug("Spawning new expect session with: '$spawn_cmd'");
-		eval {
-			$session = new Expect;
-			$session->raw_pty(TRUE);
-			$session->spawn($spawn_cmd);
-		};
-		if ($@) {
-			$log->warn("Connecting to " . $self->hostname . " failed: $@");
-			return $@;
-		}
-	}
-	else {
-		$log->info("Session for ". $self->hostname . " already exists.");
-	}
+    # Okay, let's get on with connecting to the device
+    $session = $self->session;
+    if (&_invalid_session($session))
+    {
+        $log->info("Connecting to " . $self->hostname);
+        $log->debug("Using command '" . $self->access_cmd . "'");
+        $log->debug("Spawning new expect session with: '$spawn_cmd'");
+        eval
+        {
+            $session = new Expect;
+            $session->raw_pty(TRUE);
+            $session->spawn($spawn_cmd);
+        };
+        if ($@)
+        {
+            $log->warn("Connecting to " . $self->hostname . " failed: $@");
+            return $@;
+        }
+    }
+    else
+    {
+        $log->info("Session for ". $self->hostname . " already exists.");
+    }
 
-	# Enable dumping data to the screen.
-	if ($log->is_trace() || $log->is_debug() ) {
-		$session->log_stdout(TRUE);
-	}
-	else {
-		$session->log_stdout(FALSE);
-	}
+    # Enable dumping data to the screen.
+    if ($log->is_trace() || $log->is_debug() )
+    {
+        $session->log_stdout(TRUE);
+    }
+    else
+    {
+        $session->log_stdout(FALSE);
+    }
 
     ####################
     # Setup Expect command array
-	#
-	# The commands are defined for the class, but they need
-	# to be eval'ed before we can use them.
+    #
+    # The commands are defined for the class, but they need
+    # to be eval'ed before we can use them.
     ####################
     # Setup the expect commands to do the initial login.
     # Up to four commands may need to be run:
@@ -261,28 +282,32 @@ sub connect {
                             eval $expect_priv_mode_cmd,
                     ]);
 
-	foreach my $command (@expect_commands) {
-		$session->expect(MEDIUM_TIMEOUT, @$command, eval $expect_timeout_cmd);
-		if ($log->level == $TRACE) {
-			$log->trace("Expect matching before: " . $session->before);
-			$log->trace("Expect matching match : " . $session->match);
-			$log->trace("Expect matching after : " . $session->after);
-		}
-		if ($connected_to_device) {
-			$log->debug("Connected to device " . $self->hostname);
-			$self->session($session);
-			last;
-		}
-		elsif ($command_failed) {
-			$log->warn("Failed to connect to device " . $self->hostname);
-			$log->debug("Failed on command: " , @$command);
-			$session->soft_close();
-			$self->session(undef);
-			last;
-		}
-	}
+    foreach my $command (@expect_commands)
+    {
+        $session->expect(MEDIUM_TIMEOUT, @$command, eval $expect_timeout_cmd);
+        if ($log->level == $TRACE)
+        {
+            $log->trace("Expect matching before: " . $session->before);
+            $log->trace("Expect matching match : " . $session->match);
+            $log->trace("Expect matching after : " . $session->after);
+        }
+        if ($connected_to_device)
+        {
+            $log->debug("Connected to device " . $self->hostname);
+            $self->session($session);
+            last;
+        }
+        elsif ($command_failed)
+        {
+            $log->warn("Failed to connect to device " . $self->hostname);
+            $log->debug("Failed on command: " , @$command);
+            $session->soft_close();
+            $self->session(undef);
+            last;
+        }
+    }
 
-	return $connected_to_device ? undef : 'Failed to connect to device.';
+    return $connected_to_device ? undef : 'Failed to connect to device.';
 }
 
 ########################################
@@ -295,8 +320,8 @@ sub connect {
 # return what type of device it is.
 ########################################
 sub discover_dev_type {
-	my $self = shift;
-	return ref($self);
+    my $self = shift;
+    return ref($self);
 }
 
 ########################################
@@ -308,71 +333,76 @@ sub discover_dev_type {
 # cisco devices.
 #
 # Returns:
-#	success = undef
-#	failure = reason for failure (aka a true value)
+#   success = undef
+#   failure = reason for failure (aka a true value)
 ########################################
 sub get_admin_rights {
-	my $self     = shift;
-	my $password = $self->enable_password;
-	my $log      = Log::Log4perl->get_logger("Net::Autoconfig");
-	my $command_failed;       # indicates of the command failed.
-	my $already_enabled;      # indicates if already in admin mode
-	my @expect_commands;      # the commands to run on the device
-	my $session;              # the expect session
+    my $self     = shift;
+    my $password = $self->enable_password;
+    my $log      = Log::Log4perl->get_logger("Net::Autoconfig");
+    my $command_failed;       # indicates of the command failed.
+    my $already_enabled;      # indicates if already in admin mode
+    my @expect_commands;      # the commands to run on the device
+    my $session;              # the expect session
 
-	# Do some sanity checking
-	$session = $self->session;
-	if (not $session) {
-		$log->warn("No session defined for get admin rights.");
-		return "No session defined for get admin rights.";
-	}
+    # Do some sanity checking
+    $session = $self->session;
+    if (not $session)
+    {
+        $log->warn("No session defined for get admin rights.");
+        return "No session defined for get admin rights.";
+    }
 
-	if ($self->admin_status) {
-		$log->debug("Already have admin rights.");
-		return;
-	}
+    if ($self->admin_status)
+    {
+        $log->debug("Already have admin rights.");
+        return;
+    }
 
-	$log->debug("Getting admin rights.");
+    $log->debug("Getting admin rights.");
 
     ####################
     # Setup Expect command array
-	#
-	# The commands are defined for the class, but they need
-	# to be eval'ed before we can use them.
+    #
+    # The commands are defined for the class, but they need
+    # to be eval'ed before we can use them.
     ####################
     # Setup the expect commands to get admin rights
     # send "enable"
-	# send the enable password
+    # send the enable password
     # verify priv mode
     ####################
     push(@expect_commands, [
-							eval $expect_enable_cmd,
+                            eval $expect_enable_cmd,
                             eval $expect_already_enabled_cmd,
                     ]);
     push(@expect_commands, [
-							eval $expect_enable_passwd_cmd,
+                            eval $expect_enable_passwd_cmd,
                     ]);
     push(@expect_commands, [
                             eval $expect_priv_mode_cmd,
                     ]);
 
-	foreach my $command (@expect_commands) {
-		$session->expect(MEDIUM_TIMEOUT, @$command, eval $expect_timeout_cmd);
-		if ($command_failed) {
-			$log->warn("Command failed.");
-			$log->debug("Failed command(s): " . @$command);
-			$self->admin_status(FALSE);
-			return "Enable command failed.";
-		}
-		elsif ($already_enabled) {
-			$log->info("Already have admin privileges");
-			last;
-		}
-	}
+    foreach my $command (@expect_commands)
+    {
+        $session->expect(MEDIUM_TIMEOUT, @$command, eval $expect_timeout_cmd);
+        if ($command_failed)
+        {
+            $log->warn("Command failed.");
+            $log->debug("Failed command(s): " . @$command);
+            $self->admin_status(FALSE);
+            return "Enable command failed.";
+        }
+        elsif ($already_enabled)
+        {
+            $log->info("Already have admin privileges");
+            last;
+        }
+    }
 
-	$log->debug("Got admin rights");
-	$self->admin_status(TRUE);
-	return;
+    $log->debug("Got admin rights");
+    $self->admin_status(TRUE);
+    return;
 }
 
 ########################################
@@ -384,34 +414,36 @@ sub get_admin_rights {
 # when using expect.
 #
 # Returns:
-#	success = undef
-#	failure = reason for failure
+#   success = undef
+#   failure = reason for failure
 ########################################
 sub disable_paging {
-	my $self = shift;
-	my $session;         # the object's expect session
-	my $log           = Log::Log4perl->get_logger("Net::Autoconfig");
-	my $command_failed;  # a flag to indicate if the command failed
-	my @commands;        # an array of commands to execute
+    my $self = shift;
+    my $session;         # the object's expect session
+    my $log           = Log::Log4perl->get_logger("Net::Autoconfig");
+    my $command_failed;  # a flag to indicate if the command failed
+    my @commands;        # an array of commands to execute
 
-	$session = $self->session;
-	if (&_invalid_session($session)) {
-		return "Failed - session not defined";
-	}
+    $session = $self->session;
+    if (&_invalid_session($session))
+    {
+        return "Failed - session not defined";
+    }
 
-	$log->debug("Disabling paging");
+    $log->debug("Disabling paging");
 
-	$session->expect(MEDIUM_TIMEOUT, eval $expect_disable_paging_cmd, eval $expect_timeout_cmd);
-	if ($command_failed) {
-		$log->warn("Failed to disable paging.  The rest of the configuration could fail.");
-		return "Failed - paging command timed out";
-	}
+    $session->expect(MEDIUM_TIMEOUT, eval $expect_disable_paging_cmd, eval $expect_timeout_cmd);
+    if ($command_failed)
+    {
+        $log->warn("Failed to disable paging.  The rest of the configuration could fail.");
+        return "Failed - paging command timed out";
+    }
 
-	$session->send("\n");
+    $session->send("\n");
 
-	$log->debug("Paging disabled.");
+    $log->debug("Paging disabled.");
 
-	return;
+    return;
 }
 
 ############################################################
@@ -429,24 +461,28 @@ sub disable_paging {
 # be defined.
 #
 # Returns:
-#	true if invalid
-#	undef if valid
+#   true if invalid
+#   undef if valid
 ########################################
 sub _invalid_session {
-	my $session = shift;
+    my $session = shift;
 
-	if (not defined $session) {
-		return TRUE;
-	}
-	elsif (not ref($session)) {
-		return TRUE;
-	}
-	elsif (not ref($session) eq 'Expect') {
-		return TRUE;
-	}
-	else {
-		return;
-	}
+    if (not defined $session)
+    {
+        return TRUE;
+    }
+    elsif (not ref($session))
+    {
+        return TRUE;
+    }
+    elsif (not ref($session) eq 'Expect')
+    {
+        return TRUE;
+    }
+    else
+    {
+        return;
+    }
 }
 
 # Modules must return true.

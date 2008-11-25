@@ -19,25 +19,25 @@ use constant FALSE  =>  0;
 use constant DEFAULT_TIMEOUT => 10;
 
 use constant DEFAULT_CMD => {
-								cmd			=>  "",
-								regex		=>	"",
-								timeout		=>	DEFAULT_TIMEOUT,
-								required	=>	TRUE,
-								};
+                                cmd         =>  "",
+                                regex       =>  "",
+                                timeout     =>  DEFAULT_TIMEOUT,
+                                required    =>  TRUE,
+                                };
 
 # directives = keywords that the parser looks for.  The corresponding hash value
 # is the regex to use to look for corresponding data.
 my $file_directives = {
-	cmd			=>	'.+',
-	'wait'		=>	'\d+',
-	regex		=>	'.*',
-	default		=>	'',
-	required	=>	'',
-	optional	=>	'',
-	device		=>	'\w+',
-	host		=>	'\w+',
-	hostname	=>	'\w+',
-	end			=>	'',
+    cmd         =>  '.+',
+    'wait'      =>  '\d+',
+    regex       =>  '.*',
+    default     =>  '',
+    required    =>  '',
+    optional    =>  '',
+    device      =>  '\w+',
+    host        =>  '\w+',
+    hostname    =>  '\w+',
+    end         =>  '',
 };
 
 
@@ -59,25 +59,26 @@ my $file_directives = {
 # Takes a filename
 #
 # Returns:
-#	a Net::Autoconfig::Template object
+#   a Net::Autoconfig::Template object
 ########################################
 sub new {
-	my $invocant = shift; # calling class
-	my $filename = shift;
-	my $class    = ref($invocant) || $invocant;
-	my $self     = {};
-	my $log      = Log::Log4perl->get_logger('Net::Autoconfig');
-	my $template_data;    # a hash ref to the template data from the file
+    my $invocant = shift; # calling class
+    my $filename = shift;
+    my $class    = ref($invocant) || $invocant;
+    my $self     = {};
+    my $log      = Log::Log4perl->get_logger('Net::Autoconfig');
+    my $template_data;    # a hash ref to the template data from the file
 
-	$log->debug("Creating new template object");
-	$template_data = _get_template_data($filename);
-	$self = $template_data || {};
+    $log->debug("Creating new template object");
+    $template_data = _get_template_data($filename);
+    $self = $template_data || {};
 
-	if ($log->is_trace()) {
-		$log->info(Dumper($template_data));
-	}
+    if ($log->is_trace())
+    {
+        $log->info(Dumper($template_data));
+    }
 
-	return bless $self, $class;
+    return bless $self, $class;
 }
 
 ############################################################
@@ -90,137 +91,159 @@ sub new {
 #
 # Load the file and extract data from it.
 # Returns:
-#	array context	=> a hash of the template data
-#	scalar context	=> a hash ref of the template data
-#	failure			=> undef
+#   array context   => a hash of the template data
+#   scalar context  => a hash ref of the template data
+#   failure         => undef
 ########################################
 sub _get_template_data {
-	my $filename = shift;
-	my $template_data = {};
-	my $log = Log::Log4perl->get_logger("Net::Autoconfig");
-	my $current_device;      # the name of the current device
-	my $set_defaults_flag;   # set if we've seen a "default" directive
-	my $skip_push_cmd;       # flag indicates if we shouldn't push this to the list of commands
+    my $filename = shift;
+    my $template_data = {};
+    my $log = Log::Log4perl->get_logger("Net::Autoconfig");
+    my $current_device;      # the name of the current device
+    my $set_defaults_flag;   # set if we've seen a "default" directive
+    my $skip_push_cmd;       # flag indicates if we shouldn't push this to the list of commands
 
-	$filename or return;
+    $filename or return;
 
-	eval {
-		open(TEMPLATE, "<$filename") || die "Could not open '$filename' for reading: $!";
-	};
-	if ($@) {
-		$log->warn("Loading Template - $@");
-		return;
-	}
+    eval
+    {
+        open(TEMPLATE, "<$filename") || die "Could not open '$filename' for reading: $!";
+    };
+    if ($@)
+    {
+        $log->warn("Loading Template - $@");
+        return;
+    }
 
-	$template_data->{default} = DEFAULT_CMD;
+    $template_data->{default} = DEFAULT_CMD;
 
-	while (my $line = <TEMPLATE>) {
-		my $cmds;     # the command or the directives + commands
-		$log->trace("Template line: $line");
-		next if $line =~ /^#/;
-		$cmds = _get_template_directives($line);
+    while (my $line = <TEMPLATE>)
+    {
+        my $cmds;     # the command or the directives + commands
+        $log->trace("Template line: $line");
+        next if $line =~ /^#/;
+        $cmds = _get_template_directives($line);
 
-		if ($cmds->{default}) {
-			$set_defaults_flag = TRUE;
-			delete $cmds->{default};
-			$cmds->{'cmd'} = '';
-		}
+        if ($cmds->{default})
+        {
+            $set_defaults_flag = TRUE;
+            delete $cmds->{default};
+            $cmds->{'cmd'} = '';
+        }
 
 
-		foreach my $hostname qw(device host hostname) {
-			if ($cmds->{$hostname}) {
-				$current_device = $cmds->{$hostname};
-				$template_data->{$current_device}->{hostname} = $current_device;
-				delete $cmds->{$hostname};
-				$skip_push_cmd = TRUE;   # If this exists, then don't push this onto the cmd list/stack
-				$log->debug("Setting hostname to '$current_device'");
-			}
-		}
-		if ( $cmds->{end} ) {
-			undef $current_device;
-			undef $set_defaults_flag;
-		}
+        foreach my $hostname qw(device host hostname)
+        {
+            if ($cmds->{$hostname})
+            {
+                $current_device = $cmds->{$hostname};
+                $template_data->{$current_device}->{hostname} = $current_device;
+                delete $cmds->{$hostname};
+                $skip_push_cmd = TRUE;   # If this exists, then don't push this onto the cmd list/stack
+                $log->debug("Setting hostname to '$current_device'");
+            }
+        }
+        if ( $cmds->{end} )
+        {
+            undef $current_device;
+            undef $set_defaults_flag;
+        }
 
-		# Add the data to the right place
-		if ( $set_defaults_flag and $current_device ) {
-			# Add the existing data to the default data.
-			# New data overwrites old data.
-			# Vivify the default data if it does not exist
-			my $default_data;
-			if (not $template_data->{$current_device}->{default}) {
-				if ($template_data->{default}) {
-					$template_data->{$current_device}->{default} = $template_data->{default};
-				}
-				else {
-					$template_data->{$current_device}->{default} = DEFAULT_CMD;
-				}
-			}
-			$default_data = $template_data->{$current_device}->{default};
-			$template_data->{$current_device}->{default} = { %$default_data, %$cmds };
-			$template_data->{$current_device}->{default}->{cmd} = '';
-			$log->trace("Device Default Data: " . Dumper($template_data->{$current_device}->{default}));
-		}
-		elsif ($set_defaults_flag and not $current_device) {
-			# Add the existing data to the global template default data.
-			# New data overwrites old data.
-			# Vivify the default data if it does not exist
-			if (not exists $template_data->{default}) {
-				$template_data->{default} = DEFAULT_CMD;
-			}
-			$template_data->{default} = { %{$template_data->{default}}, %$cmds };
-			$template_data->{default}->{cmd} = '';
-			$log->trace("Template Default Data: " . Dumper($template_data->{default}));
-		}
-		elsif ($current_device) {
-			# Add the commands to the current device.
-			# If there aren't any commands yet, make them
-			if ($skip_push_cmd) {
-				undef $skip_push_cmd;
-				next;
-			}
+        # Add the data to the right place
+        if ( $set_defaults_flag and $current_device )
+        {
+            # Add the existing data to the default data.
+            # New data overwrites old data.
+            # Vivify the default data if it does not exist
+            my $default_data;
+            if (not $template_data->{$current_device}->{default})
+            {
+                if ($template_data->{default})
+                {
+                    $template_data->{$current_device}->{default} = $template_data->{default};
+                }
+                else
+                {
+                    $template_data->{$current_device}->{default} = DEFAULT_CMD;
+                }
+            }
+            $default_data = $template_data->{$current_device}->{default};
+            $template_data->{$current_device}->{default} = { %$default_data, %$cmds };
+            $template_data->{$current_device}->{default}->{cmd} = '';
+            $log->trace("Device Default Data: " . Dumper($template_data->{$current_device}->{default}));
+        }
+        elsif ($set_defaults_flag and not $current_device)
+        {
+            # Add the existing data to the global template default data.
+            # New data overwrites old data.
+            # Vivify the default data if it does not exist
+            if (not exists $template_data->{default})
+            {
+                $template_data->{default} = DEFAULT_CMD;
+            }
+            $template_data->{default} = { %{$template_data->{default}}, %$cmds };
+            $template_data->{default}->{cmd} = '';
+            $log->trace("Template Default Data: " . Dumper($template_data->{default}));
+        }
+        elsif ($current_device)
+        {
+            # Add the commands to the current device.
+            # If there aren't any commands yet, make them
+            if ($skip_push_cmd)
+            {
+                undef $skip_push_cmd;
+                next;
+            }
 
-			my $cmds_array;   # an array ref to the device commands
-			if ( not defined $template_data->{$current_device}->{cmds}) {
-				$template_data->{$current_device}->{cmds} = [];
-			}
+            my $cmds_array;   # an array ref to the device commands
+            if ( not defined $template_data->{$current_device}->{cmds})
+            {
+                $template_data->{$current_device}->{cmds} = [];
+            }
 
-			# Create a ref to the cmds array to make it easier to read and write
-			$cmds_array = $template_data->{$current_device}->{cmds};
+            # Create a ref to the cmds array to make it easier to read and write
+            $cmds_array = $template_data->{$current_device}->{cmds};
 
-			if (exists $template_data->{$current_device}->{default}) {
-				$cmds = { %{$template_data->{$current_device}->{default}}, %$cmds };
-			}
-			else {
-				$cmds = { %{$template_data->{default}}, %$cmds };
-			}
+            if (exists $template_data->{$current_device}->{default})
+            {
+                $cmds = { %{$template_data->{$current_device}->{default}}, %$cmds };
+            }
+            else
+            {
+                $cmds = { %{$template_data->{default}}, %$cmds };
+            }
 
-			$log->trace("Adding commands to $current_device: " . Dumper($cmds));
-			push(@$cmds_array, $cmds);
-		}
-		else {
-			# Ignore blank space.  But if it looks like someone tried to put a command
-			# outside of a device or default directive, then let them know about it.
-			if ($cmds->{cmd} or ((scalar keys %$cmds) > 1)) {
-				$log->warn("Unknown device or default object to add commands to.");
-				$log->warn(Dumper($cmds));
-			}
-		}
+            $log->trace("Adding commands to $current_device: " . Dumper($cmds));
+            push(@$cmds_array, $cmds);
+        }
+        else
+        {
+            # Ignore blank space.  But if it looks like someone tried to put a command
+            # outside of a device or default directive, then let them know about it.
+            if ($cmds->{cmd} or ((scalar keys %$cmds) > 1))
+            {
+                $log->warn("Unknown device or default object to add commands to.");
+                $log->warn(Dumper($cmds));
+            }
+        }
 
-	}
+    }
 
-	if ($log->is_trace()) {
-		$log->info(Dumper($template_data));
-	}
+    if ($log->is_trace())
+    {
+        $log->info(Dumper($template_data));
+    }
 
-	close(TEMPLATE);
+    close(TEMPLATE);
 
-	# Clean-up the template (i.e. remove the default config entries)
-	delete $template_data->{default};
-	foreach my $device (keys %$template_data) {
-		delete $template_data->{$device}->{default};
-	}
+    # Clean-up the template (i.e. remove the default config entries)
+    delete $template_data->{default};
+    foreach my $device (keys %$template_data)
+    {
+        delete $template_data->{$device}->{default};
+    }
 
-	return wantarray ? %$template_data : $template_data;
+    return wantarray ? %$template_data : $template_data;
 }
 
 ########################################
@@ -232,68 +255,75 @@ sub _get_template_data {
 # of the applicable directives
 #
 # Returns:
-#	array context	=>	hash of the commands
-#	scalar context	=>	hash ref of the commands
-#	failure			=>	undef
+#   array context   =>  hash of the commands
+#   scalar context  =>  hash ref of the commands
+#   failure         =>  undef
 ########################################
 sub _get_template_directives {
-	my $line   = shift;
-	my $cmds   = {};     # a hash ref of the current commands
-	my $log = Log::Log4perl->get_logger("Net::Autoconfig");
+    my $line   = shift;
+    my $cmds   = {};     # a hash ref of the current commands
+    my $log = Log::Log4perl->get_logger("Net::Autoconfig");
 
-	chomp($line);
+    chomp($line);
 
-	if ($line =~ /^:.*:$/) {
-		# directives only
-		my @line_directives;
-		$line =~ s/^://;
-		$line =~ s/:$//;
-		$line =~ s/\\:/~!~/g;
+    if ($line =~ /^:.*:$/)
+    {
+        # directives only
+        my @line_directives;
+        $line =~ s/^://;
+        $line =~ s/:$//;
+        $line =~ s/\\:/~!~/g;
 
-		@line_directives = split(":", $line);
+        @line_directives = split(":", $line);
 
-		foreach my $directive (@line_directives) {
-			&_add_directive($directive, $cmds);
-		}
-	}
-	elsif ($line =~ /^:/) {
-		# directives followed by a command
-		my @line_directives;
-		my $param;
-		$line =~ s/^://;
-		$line =~ s/\\:/~!~/g;
+        foreach my $directive (@line_directives)
+        {
+            &_add_directive($directive, $cmds);
+        }
+    }
+    elsif ($line =~ /^:/)
+    {
+        # directives followed by a command
+        my @line_directives;
+        my $param;
+        $line =~ s/^://;
+        $line =~ s/\\:/~!~/g;
 
-		@line_directives = split(":", $line);
+        @line_directives = split(":", $line);
 
-		for (my $elem_count = 0; $elem_count < scalar(@line_directives); $elem_count++) {
-			$log->trace("Directive $elem_count of " . scalar(@line_directives)
-						. " = " . $line_directives[$elem_count]);
+        for (my $elem_count = 0; $elem_count < scalar(@line_directives); $elem_count++)
+        {
+            $log->trace("Directive $elem_count of " . scalar(@line_directives)
+                        . " = " . $line_directives[$elem_count]);
 
-			# The last value of the array is a command.
-			if ($elem_count == (scalar(@line_directives) - 1)) {
-				my $cmd;
-				my $param;
-				$cmd = "cmd";
-				$param = $line_directives[$elem_count];
-				$param =~ s/~!~/:/g;
-				$param =~ s/^\s*//;
-				$param =~ s/\s*$//;
-				$cmds->{cmd} = $param;
-				$log->trace("Added command: $param");
-				last;
-			}
-			else {
-				&_add_directive($line_directives[$elem_count], $cmds);
-			}
-		}
-	}
-	else {
-		$line =~ s/^\s*//;
-		$line =~ s/\s*$//;
-		$cmds->{cmd} = $line;
-	}
+            # The last value of the array is a command.
+            if ($elem_count == (scalar(@line_directives) - 1))
+            {
+                my $cmd;
+                my $param;
+                $cmd = "cmd";
+                $param = $line_directives[$elem_count];
+                $param =~ s/~!~/:/g;
+                $param =~ s/^\s*//;
+                $param =~ s/\s*$//;
+                $cmds->{cmd} = $param;
+                $log->trace("Added command: $param");
+                last;
+            }
+            else
+            {
+                &_add_directive($line_directives[$elem_count], $cmds);
+            }
+        }
+    }
+    else
+    {
+        $line =~ s/^\s*//;
+        $line =~ s/\s*$//;
+        $cmds->{cmd} = $line;
+    }
 
-	return wantarray ? %$cmds : $cmds;
+    return wantarray ? %$cmds : $cmds;
 }
 
 ########################################
@@ -308,71 +338,83 @@ sub _get_template_directives {
 # ref is modified directly.
 #
 # Returns:
-#	valid directive	=>	TRUE
-#	invalid directive	=>	undef
+#   valid directive =>  TRUE
+#   invalid directive   =>  undef
 ########################################
 sub _add_directive {
-	my $directive = shift;
-	my $hash      = shift;
-	my $log = Log::Log4perl->get_logger("Net::Autoconfig");
-	my $cmd;
-	my $param;
-	$directive =~ s/~!~/:/g;
+    my $directive = shift;
+    my $hash      = shift;
+    my $log = Log::Log4perl->get_logger("Net::Autoconfig");
+    my $cmd;
+    my $param;
+    $directive =~ s/~!~/:/g;
 
-	$log->trace("Directive = '$directive'");
-	$directive    =~ /(\w+)\s*(.*)/;
-	$cmd          = $1;
-	$2 and $param = $2;
-	if ($param) {
-		$param =~ s/^\s*//;
-		$param =~ s/\s*$//;
-	}
+    $log->trace("Directive = '$directive'");
+    $directive    =~ /(\w+)\s*(.*)/;
+    $cmd          = $1;
+    $2 and $param = $2;
+    if ($param)
+    {
+        $param =~ s/^\s*//;
+        $param =~ s/\s*$//;
+    }
 
-	if (exists $file_directives->{$cmd}) {
-		my $regex = $file_directives->{$cmd};
-		if (not $regex) {
-			# no parameter expected
-			# Special case for required/optional since it toggles a value
-			if ($cmd =~ /required/i) {
-				$hash->{'required'} = TRUE;
-				$log->trace("Setting command to required: ". TRUE);
-			}
-			elsif ($cmd =~ /optional/i) {
-				$hash->{'required'} = FALSE;
-				$log->trace("Setting command to optional: ". FALSE);
-			}
-			else {
-				$hash->{$cmd} = TRUE;
-			}
-			return TRUE;
-		}
-		elsif (not $param) {
-			$log->warn("No parameter specified for command '$cmd'.");
-			return;
-		}
-		elsif ($param =~ /$regex/) {
-			if ($cmd =~ /wait/i) {
-				$hash->{'cmd'} = 'wait';
-				$hash->{'timeout'} = $param;
-			}
-			else {
-				$hash->{$cmd} = $param;
-			}
-			$log->trace("Comand '$cmd' with param '$param'");
-			return TRUE;
-		}
-		else {
-			$param or $param = "";
-			$log->warn("Invalid parameter '$param' for command '$cmd'");
-			return;
-		}
-	}
-	else {
-		$param or $param = "";
-		$log->warn("Unknown command: '$cmd' with parameter '$param'");
-		return;
-	}
-	return;
+    if (exists $file_directives->{$cmd})
+    {
+        my $regex = $file_directives->{$cmd};
+        if (not $regex)
+        {
+            # no parameter expected
+            # Special case for required/optional since it toggles a value
+            if ($cmd =~ /required/i)
+            {
+                $hash->{'required'} = TRUE;
+                $log->trace("Setting command to required: ". TRUE);
+            }
+            elsif ($cmd =~ /optional/i)
+            {
+                $hash->{'required'} = FALSE;
+                $log->trace("Setting command to optional: ". FALSE);
+            }
+            else
+            {
+                $hash->{$cmd} = TRUE;
+            }
+            return TRUE;
+        }
+        elsif (not $param)
+        {
+            $log->warn("No parameter specified for command '$cmd'.");
+            return;
+        }
+        elsif ($param =~ /$regex/)
+        {
+            if ($cmd =~ /wait/i)
+            {
+                $hash->{'cmd'} = 'wait';
+                $hash->{'timeout'} = $param;
+            }
+            else
+            {
+                $hash->{$cmd} = $param;
+            }
+            $log->trace("Comand '$cmd' with param '$param'");
+            return TRUE;
+        }
+        else
+        {
+            $param or $param = "";
+            $log->warn("Invalid parameter '$param' for command '$cmd'");
+            return;
+        }
+    }
+    else
+    {
+        $param or $param = "";
+        $log->warn("Unknown command: '$cmd' with parameter '$param'");
+        return;
+    }
+    return;
 }
 
 ########################################
@@ -382,8 +424,8 @@ sub _add_directive {
 # netmask. 
 #
 # Returns:
-#	netmask upon success
-#	undef   upon failure
+#   netmask upon success
+#   undef   upon failure
 ########################################
 sub _prefix_to_netmask {
     my $prefix = shift;
@@ -391,12 +433,12 @@ sub _prefix_to_netmask {
     my $prefix_remainder;
     my @netmask;
 
-	($prefix) or return;
-	($prefix =~ /\/\d{1,2}$/) or return;
+    ($prefix) or return;
+    ($prefix =~ /\/\d{1,2}$/) or return;
 
-	$prefix =~ s/\///;
+    $prefix =~ s/\///;
 
-	$prefix_octets = int($prefix / 8);
+    $prefix_octets = int($prefix / 8);
     $prefix_remainder = ($prefix % 8);
 
     my $prefix_values = {
@@ -411,23 +453,24 @@ sub _prefix_to_netmask {
                 8   =>  "255",
                 };
 
-    foreach my $octet (1..4) {
-        if ($prefix_octets > 0) {
+    foreach my $octet (1..4)
+    {
+        if ($prefix_octets > 0)
+        {
             $prefix_octets--;
             push(@netmask, $prefix_values->{8});
         }
-		elsif ($prefix_remainder) {
+        elsif ($prefix_remainder)
+        {
             push(@netmask, $prefix_values->{$prefix_remainder});
             $prefix_remainder = 0;
         }
-		else {
+        else
+        {
             push(@netmask, $prefix_values->{0});
         }
     }
-    return
-		wantarray
-		? @netmask
-		: join(".", @netmask);
+    return wantarray ? @netmask : join(".", @netmask);
 }
 
 
@@ -438,54 +481,50 @@ sub _prefix_to_netmask {
 # prefix "/\d{1,2}"
 #
 # Returns:
-#	prefix  upon success
-#	undef   upon failure
+#   prefix  upon success
+#   undef   upon failure
 ########################################
 sub _netmask_to_prefix {
-	my $netmask = shift;
-	my @netmask;         # the octets of the netmask
-	my $prefix = 0;      # the prefix form of the netmask
-	my $log = Log::Log4perl->get_logger('Net::Autoconfig');
+    my $netmask = shift;
+    my @netmask;         # the octets of the netmask
+    my $prefix = 0;      # the prefix form of the netmask
+    my $log = Log::Log4perl->get_logger('Net::Autoconfig');
 
-	my %netmask_values = {
-			255	=>	"8",
-			254	=>	"7",
-			252	=>	"6",
-			248	=>	"5",
-			240	=>	"4",
-			224	=>	"3",
-			192	=>	"2",
-			128	=>	"1",
-			0	=>	"0",
-			};
-	
-	if (! $netmask) {
-		$log->info("No netmask was specified.");
-		return;
-	}
+    my %netmask_values = {
+            255 =>  "8",
+            254 =>  "7",
+            252 =>  "6",
+            248 =>  "5",
+            240 =>  "4",
+            224 =>  "3",
+            192 =>  "2",
+            128 =>  "1",
+            0   =>  "0",
+            };
+    
+    if (! $netmask)
+    {
+        $log->info("No netmask was specified.");
+        return;
+    }
 
-	@netmask = split(/\./, $netmask);
+    @netmask = split(/\./, $netmask);
 
-	if ( @netmask != 4) {
-		$log->info("Invalid netmask. '" . $netmask . "'");
-		return;
-	}
+    if ( @netmask != 4)
+    {
+        $log->info("Invalid netmask. '" . $netmask . "'");
+        return;
+    }
 
-	foreach my $octet (@netmask) {
-		($octet > 255) and $log->info("Netmask octect > 255");
-		($octet < 0)   and $log->info("Netmask octect < 0");
-			
-		$prefix += $netmask_values{$octet};
-	}
-	return $prefix;
+    foreach my $octet (@netmask)
+    {
+        ($octet > 255) and $log->info("Netmask octect > 255");
+        ($octet < 0)   and $log->info("Netmask octect < 0");
+            
+        $prefix += $netmask_values{$octet};
+    }
+    return $prefix;
 }
-
-
-
-
-
-
-
 
 # Modules must return true.
 TRUE;
@@ -550,11 +589,11 @@ switches within a week.
 
 =item $device->new();
 
-	Returns a Net::Autoconfig::Device object with default values.
+    Returns a Net::Autoconfig::Device object with default values.
 
 =item $device->new(@key_value_array);
 
-	Returns a Net::Autoconfig::Device object with user defined values.
+    Returns a Net::Autoconfig::Device object with user defined values.
 
 =back
 
@@ -588,33 +627,33 @@ Error!, returns true
 
 =item $device->ip_addr()
 
-	$ip_address = $device->ip_addr();
-	($ip_address, $netmask, $prefix) = $device->ip_addr();
+    $ip_address = $device->ip_addr();
+    ($ip_address, $netmask, $prefix) = $device->ip_addr();
 
 =item $device->ip_addr("192.168.10.1");
 
-	Sets the ip address
+    Sets the ip address
 
-	returns undef if successful
+    returns undef if successful
 
-	returns TRUE if failure
+    returns TRUE if failure
 
 =item $device->ip_addr("192.168.10.1", "255.255.255.0");
 
 =item $device->ip_addr("192.168.10.1", "/24");
 
-	Sets the ip address and the subnet/netmask.  The method will
-	add both prefix and netmask to the device.  Send either the
-	netmask or the prefix.  Whichever you prefer. The method will
-	calculate the other one for you.
+    Sets the ip address and the subnet/netmask.  The method will
+    add both prefix and netmask to the device.  Send either the
+    netmask or the prefix.  Whichever you prefer. The method will
+    calculate the other one for you.
 
-	The prefix must be in the form "/\d\d?".  I.e., it needs the
-	starting forward slash and must be followed by one or two
-	digits.
+    The prefix must be in the form "/\d\d?".  I.e., it needs the
+    starting forward slash and must be followed by one or two
+    digits.
 
-	returns undef for success
+    returns undef for success
 
-	returns TRUE for failure
+    returns TRUE for failure
 
 =back
 
@@ -631,14 +670,14 @@ Returns undef if an attribute does not exist.
 
 =item $my_attributes = $device->get_param();
 
-	E.g.
+    E.g.
 
-	$my_attritubes = {
-		hostname	=>	"",
-		ip_addr		=>	"",
-		...
-		fav_color	=>	"green",
-	}
+    $my_attritubes = {
+        hostname    =>  "",
+        ip_addr     =>  "",
+        ...
+        fav_color   =>  "green",
+    }
 
 =back
 
@@ -664,7 +703,7 @@ Returns TRUE for failure
 
 =head1 SEE ALSO
 
-	Net::Autoconfig
+    Net::Autoconfig
 
 =head1 AUTHOR
 

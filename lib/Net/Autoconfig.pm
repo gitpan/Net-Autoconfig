@@ -11,7 +11,7 @@ use Data::Dumper;
 use POSIX ":sys_wait_h";
 use Cwd;
 
-our $VERSION = '1.00';
+our $VERSION = '1.01';
 our $PATH    = getcwd();
 
 # Constants and Global Variables
@@ -20,25 +20,29 @@ our $PATH    = getcwd();
 # Initialize logging
 {
     my $filename  = join("/",$PATH,"logging.conf");
-    if (-e $filename) {
-		eval {
-			Log::Log4perl::init($filename);
-		};
-		if ($@) {
-			print STDERR "Failed to initialize '$filename' even though it exists.\n";
-			print STDERR "Logging to STDERR.";
-			Log::Log4perl->easy_init($WARN);
-		}
-    } else {
-		print STDERR "logging.conf does not exist!";
-		print STDERR "Logging to STDERR.";
-		Log::Log4perl->easy_init($INFO);
-	}
+    if (-e $filename)
+    {
+        eval
+        {
+            Log::Log4perl::init($filename);
+        };
+        if ($@) {
+            print STDERR "Failed to initialize '$filename' even though it exists.\n";
+            print STDERR "Logging to STDERR.";
+            Log::Log4perl->easy_init($WARN);
+        }
+    }
+    else
+    {
+        print STDERR "logging.conf does not exist!";
+        print STDERR "Logging to STDERR.";
+        Log::Log4perl->easy_init($INFO);
+    }
 }
 
 
-use constant TRUE	=>	1;
-use constant FALSE	=>	0;
+use constant TRUE   =>  1;
+use constant FALSE  =>  0;
 
 use constant MAXIMUM_MAX_CHILDREN => 256; # Absolute Maximum # of child processes (if using bulk mode)
 use constant DEFAULT_MAX_CHILDREN => 64;  # Default max # of child processes (if using bulk mode)
@@ -90,19 +94,19 @@ $SIG{'CHLD'} = sub { $ZOMBIES++ };
 #
 ########################################
 sub new {
-	my $invocant = shift; # calling class	
-	my $class    = ref($invocant) || $invocant;
-	my $log      = Log::Log4perl->get_logger("Net::Autoconfig");
-	my $self = {
-				bulk_mode		=>	DEFAULT_BULK_MODE,
-				log_level		=>	DEFAULT_LOG_LEVEL,
-				max_children	=>	DEFAULT_MAX_CHILDREN,
-				};
-	
-	$log->info("########################################");
-	$log->info("#       Net::Autoconfig Started        #");
-	$log->info("########################################");
-	return bless $self, $class;
+    my $invocant = shift; # calling class   
+    my $class    = ref($invocant) || $invocant;
+    my $log      = Log::Log4perl->get_logger("Net::Autoconfig");
+    my $self = {
+                bulk_mode       =>  DEFAULT_BULK_MODE,
+                log_level       =>  DEFAULT_LOG_LEVEL,
+                max_children    =>  DEFAULT_MAX_CHILDREN,
+                };
+    
+    $log->info("########################################");
+    $log->info("#       Net::Autoconfig Started        #");
+    $log->info("########################################");
+    return bless $self, $class;
 }
 
 ########################################
@@ -117,15 +121,16 @@ sub new {
 # bulk_mode value (TRUE or FALSE);
 ########################################
 sub bulk_mode {
-	my $self = shift;
-	my $mode = shift;
-	my $log  = Log::Log4perl->get_logger("Net::Autoconfig");
+    my $self = shift;
+    my $mode = shift;
+    my $log  = Log::Log4perl->get_logger("Net::Autoconfig");
 
-	if (defined $mode) {
-		$log->debug("Setting bulk_mode to " . ($mode ? TRUE : FALSE));
-		$self->{'bulk_mode'} = $mode ? TRUE : FALSE;
-	}
-	return defined $mode ? undef : $self->{'bulk_mode'};
+    if (defined $mode)
+    {
+        $log->debug("Setting bulk_mode to " . ($mode ? TRUE : FALSE));
+        $self->{'bulk_mode'} = $mode ? TRUE : FALSE;
+    }
+    return defined $mode ? undef : $self->{'bulk_mode'};
 }
 
 ########################################
@@ -140,23 +145,27 @@ sub bulk_mode {
 # log_level value.
 ########################################
 sub log_level {
-	my $self  = shift;
-	my $level = shift;
-	my $log   = Log::Log4perl->get_logger("Net::Autoconfig");
-	
-	if (defined $level) {
-		$level = int($level);
-		if ($level > MAXIMUM_LOG_LEVEL) {
-			$level = MAXIMUM_LOG_LEVEL;
-			$log->warn("Log level set too high.  Setting to " . MAXIMUM_LOG_LEVEL);
-		} elsif ($level < MINIMUM_LOG_LEVEL) {
-			$level = MINIMUM_LOG_LEVEL;
-			$log->warn("Log level set too low.  Setting to " . MINIMUM_LOG_LEVEL);
-		}
-		$log->debug("Setting log_level to $level");
-		$self->{'log_level'} = $level;
-	}
-	return defined $level ? undef : $self->{'log_level'};
+    my $self  = shift;
+    my $level = shift;
+    my $log   = Log::Log4perl->get_logger("Net::Autoconfig");
+    
+    if (defined $level)
+    {
+        $level = int($level);
+        if ($level > MAXIMUM_LOG_LEVEL)
+        {
+            $level = MAXIMUM_LOG_LEVEL;
+            $log->warn("Log level set too high.  Setting to " . MAXIMUM_LOG_LEVEL);
+        }
+        elsif ($level < MINIMUM_LOG_LEVEL)
+        {
+            $level = MINIMUM_LOG_LEVEL;
+            $log->warn("Log level set too low.  Setting to " . MINIMUM_LOG_LEVEL);
+        }
+        $log->debug("Setting log_level to $level");
+        $self->{'log_level'} = $level;
+    }
+    return defined $level ? undef : $self->{'log_level'};
 }
 
 ########################################
@@ -172,22 +181,26 @@ sub log_level {
 # max number of children.
 ########################################
 sub max_children {
-	my $self         = shift;
-	my $max_children = shift;
-	my $log          = Log::Log4perl->get_logger("Net::Autoconfig");
+    my $self         = shift;
+    my $max_children = shift;
+    my $log          = Log::Log4perl->get_logger("Net::Autoconfig");
 
-	if (defined $max_children) {
-		if ($max_children > MAXIMUM_MAX_CHILDREN) {
-			$max_children = MAXIMUM_MAX_CHILDREN;
-			$log->warn("Log max_children set too high.  Setting to '256'.");
-		} elsif ($max_children < MINIMUM_MAX_CHILDREN) {
-			$max_children = MINIMUM_MAX_CHILDREN;
-			$log->warn("Log max_children set too low.  Setting to '1'.");
-		}
-		$log->debug("Setting max_children to $max_children");
-		$self->{'max_children'} = $max_children;
-	}
-	return defined $max_children ? undef : $self->{'max_children'};
+    if (defined $max_children)
+    {
+        if ($max_children > MAXIMUM_MAX_CHILDREN)
+        {
+            $max_children = MAXIMUM_MAX_CHILDREN;
+            $log->warn("Log max_children set too high.  Setting to '256'.");
+        }
+        elsif ($max_children < MINIMUM_MAX_CHILDREN)
+        {
+            $max_children = MINIMUM_MAX_CHILDREN;
+            $log->warn("Log max_children set too low.  Setting to '1'.");
+        }
+        $log->debug("Setting max_children to $max_children");
+        $self->{'max_children'} = $max_children;
+    }
+    return defined $max_children ? undef : $self->{'max_children'};
 }
 
 ########################################
@@ -200,24 +213,27 @@ sub max_children {
 # 'failed'  => {list of hostnames  }
 ########################################
 sub get_report {
-	my $self = shift;
-	my $report = {};
-	my @succeded;     # devices that exited successfully
-	my @failed;       # devices that exited unsuccessfully
+    my $self = shift;
+    my $report = {};
+    my @succeded;     # devices that exited successfully
+    my @failed;       # devices that exited unsuccessfully
 
-	foreach my $device_pid (keys %{ $CHILD_PROCESSES->{'info'} }) {
-		if ($CHILD_PROCESSES->{'finished'}->{$device_pid}) {
-			# it failed
-			push(@failed, $CHILD_PROCESSES->{'info'}->{$device_pid});
-		}
-		else {
-			# it succeded
-			push(@succeded, $CHILD_PROCESSES->{'info'}->{$device_pid});
-		}
-	}
-	$report->{'succeded'} = \@succeded;
-	$report->{'failed'}   = \@failed;
-	return wantarray ? %$report : $report;
+    foreach my $device_pid (keys %{ $CHILD_PROCESSES->{'info'} })
+    {
+        if ($CHILD_PROCESSES->{'finished'}->{$device_pid})
+        {
+            # it failed
+            push(@failed, $CHILD_PROCESSES->{'info'}->{$device_pid});
+        }
+        else
+        {
+            # it succeded
+            push(@succeded, $CHILD_PROCESSES->{'info'}->{$device_pid});
+        }
+    }
+    $report->{'succeded'} = \@succeded;
+    $report->{'failed'}   = \@failed;
+    return wantarray ? %$report : $report;
 }
 
 ########################################
@@ -231,83 +247,99 @@ sub get_report {
 # E.g. { hostname => Net::Autoconfig::Device }
 #
 # Returns:
-# array context		=>	a hash of Devices
-# scalar context	=>	a hash ref of Devices
-# undef				=>	failure
+# array context     =>  a hash of Devices
+# scalar context    =>  a hash ref of Devices
+# undef             =>  failure
 ########################################
 sub load_devices {
-	my $self = shift;
-	my $filename = shift;
-	my $log      = Log::Log4perl->get_logger("Net::Autoconfig");
-	my $devices  = {};    # an array ref of Net::Autoconfig::Devices, key = hostname
-	my $file_format;      # indicates if the file is a hash of arrays, or as hash of hashes of arrays
-	my $file_hash_depth;  # an integer of the number of levels of hashes in the device file
-	my $current_device;   # the name of the current device to add parameters too
-	$filename or $filename = "";
-	$filename = join("/", $PATH, $filename);
+    my $self = shift;
+    my $filename = shift;
+    my $log      = Log::Log4perl->get_logger("Net::Autoconfig");
+    my $devices  = {};    # an array ref of Net::Autoconfig::Devices, key = hostname
+    my $file_format;      # indicates if the file is a hash of arrays, or as hash of hashes of arrays
+    my $file_hash_depth;  # an integer of the number of levels of hashes in the device file
+    my $current_device;   # the name of the current device to add parameters too
+    $filename or $filename = "";
+    $filename = join("/", $PATH, $filename);
 
-	(&_file_not_usable($filename, "device config")) and return;
+    (&_file_not_usable($filename, "device config")) and return;
 
-	eval {
-		open(DEVICES, $filename) || die print "Could not open '$filename' for reading: $!";
-	};
-	if ($@) {
-		$log->warn("Unable to open '$filename': $@");
-		return;
-	}
+    eval
+    {
+        open(DEVICES, $filename) || die print "Could not open '$filename' for reading: $!";
+    };
+    if ($@)
+    {
+        $log->warn("Unable to open '$filename': $@");
+        return;
+    }
 
-	# Create this here in case someone decides not to use the default
-	# device.
-	$devices->{default} = Net::Autoconfig::Device->new();
-	while (my $line = <DEVICES>) {
-		chomp $line;
-		next if $line =~ /^#/;
-		next if $line =~ /^\s*$/;
+    # Create this here in case someone decides not to use the default
+    # device.
+    $devices->{default} = Net::Autoconfig::Device->new();
+    while (my $line = <DEVICES>)
+    {
+        chomp $line;
+        next if $line =~ /^#/;
+        next if $line =~ /^\s*$/;
 
-		if ($line =~ /^:/) {
-			# some type of host declaration (host or default)
-			$line =~ s/^://;
-			$line =~ s/:$//;
-			$current_device = $line;
-			if ($current_device =~ /default/) {
-				# Allow redefinition of the default device.
-				$devices->{default} = Net::Autoconfig::Device->new();
-				$devices->{default}->set("auto_discover", TRUE);
-			} elsif ($line =~ /^end$/) {
-				undef $current_device;
-			} else {
-				if (not $current_device) {
-					$log->warn("No device configured!");
-					next;
-				}
-				$devices->{$current_device} = Net::Autoconfig::Device->new(
-												%{ $devices->{default}->get() },
-												'hostname' => $current_device,
-												);
-			}
-		} elsif ($line =~ /\s*(\w+)\s*=\s*(.*?)\s*$/) {
-			my $key = $1;
-			my $value = $2;
-			if (not $current_device) {
-				$log->warn("No device is currently configured!  Line = '$line'.");
-				next;
-			}
-			if ($log->is_trace()) {
-				$log->trace("line = '$line'");
-				$log->trace("key = '$key'");
-				$log->trace("value = '$value'");
-			}
+        if ($line =~ /^:/)
+        {
+            # some type of host declaration (host or default)
+            $line =~ s/^://;
+            $line =~ s/:$//;
+            $current_device = $line;
+            if ($current_device =~ /default/)
+            {
+                # Allow redefinition of the default device.
+                $devices->{default} = Net::Autoconfig::Device->new();
+                $devices->{default}->set("auto_discover", TRUE);
+            }
+            elsif ($line =~ /^end$/)
+            {
+                undef $current_device;
+            }
+            else
+            {
+                if (not $current_device)
+                {
+                    $log->warn("No device configured!");
+                    next;
+                }
+                $devices->{$current_device} = Net::Autoconfig::Device->new(
+                                                %{ $devices->{default}->get() },
+                                                'hostname' => $current_device,
+                                                );
+            }
+        }
+        elsif ($line =~ /\s*(\w+)\s*=\s*(.*?)\s*$/)
+        {
+            my $key = $1;
+            my $value = $2;
+            if (not $current_device)
+            {
+                $log->warn("No device is currently configured!  Line = '$line'.");
+                next;
+            }
+            if ($log->is_trace())
+            {
+                $log->trace("line = '$line'");
+                $log->trace("key = '$key'");
+                $log->trace("value = '$value'");
+            }
 
-			$devices->{$current_device}->set($key => $value);
-		} else {
-			$log->warn("Invalid key = value line. Line = '$line'.");
-		}
-	}
+            $devices->{$current_device}->set($key => $value);
+        }
+        else
+        {
+            $log->warn("Invalid key = value line. Line = '$line'.");
+        }
+    }
 
-	delete $devices->{default};
+    delete $devices->{default};
 
-	close(DEVICES);
-	return wantarray ? %$devices : $devices;
+    close(DEVICES);
+    return wantarray ? %$devices : $devices;
 }
 
 ########################################
@@ -319,23 +351,23 @@ sub load_devices {
 # See documentation for more details.
 #
 # Returns:
-#	array context	=>	a hash of the different hosts/devices types
-#	scalar context	=>	a hash ref of the different hosts/devices types
-#	failure			=> undef
+#   array context   =>  a hash of the different hosts/devices types
+#   scalar context  =>  a hash ref of the different hosts/devices types
+#   failure         => undef
 ########################################
 sub load_template {
-	my $self = shift;
-	my $filename = shift;
-	my $log = Log::Log4perl->get_logger('Net::Autoconfig');
-	my $template;
-	$filename or $filename = "";
-	$filename = join("/", $PATH, $filename);
+    my $self = shift;
+    my $filename = shift;
+    my $log = Log::Log4perl->get_logger('Net::Autoconfig');
+    my $template;
+    $filename or $filename = "";
+    $filename = join("/", $PATH, $filename);
 
-	(&_file_not_usable($filename, "template file")) and return;
+    (&_file_not_usable($filename, "template file")) and return;
 
-	$template = Net::Autoconfig::Template->new($filename);
+    $template = Net::Autoconfig::Template->new($filename);
 
-	return wantarray ? %{ $template } : $template;
+    return wantarray ? %{ $template } : $template;
 }
 
 ########################################
@@ -355,99 +387,121 @@ sub load_template {
 # later.
 #
 # Takes:
-#	$devices_hash_ref, Net::Autoconfig::Template
+#   $devices_hash_ref, Net::Autoconfig::Template
 #
 # Returns:
-#	success = undef
-#	failure = An array or array ref (contextual) of the failed devices
+#   success = undef
+#   failure = An array or array ref (contextual) of the failed devices
 ########################################
 sub autoconfig {
-	my $self = shift;
-	my $devices = shift;
-	my $template = shift;
-	my $failed_ping_test;   # results from doing the ping test on the device
-	my $log = Log::Log4perl->get_logger("Net::Autoconfig");
+    my $self = shift;
+    my $devices = shift;
+    my $template = shift;
+    my $failed_ping_test;   # results from doing the ping test on the device
+    my $log = Log::Log4perl->get_logger("Net::Autoconfig");
 
-	if (ref($self) !~ /Net::Autoconfig/) {
-		$log->warn("Autoconfig not called as a method.");
-		return "Autoconfig not called as a method.";
-	}
+    if (ref($self) !~ /Net::Autoconfig/)
+    {
+        $log->warn("Autoconfig not called as a method.");
+        return "Autoconfig not called as a method.";
+    }
 
-	if (not $devices) {
-		$log->warn("No devices passed to autoconfig.");
-		return "No devices passed to autoconfig.";
-	}
-	
-	if (not ref ($devices) eq "HASH") {
-		$log->warn("Devices were not passed as a hash ref.");
-		return "Devices were not passed as a hash ref.";
-	}
+    if (not $devices)
+    {
+        $log->warn("No devices passed to autoconfig.");
+        return "No devices passed to autoconfig.";
+    }
+    
+    if (not ref ($devices) eq "HASH")
+    {
+        $log->warn("Devices were not passed as a hash ref.");
+        return "Devices were not passed as a hash ref.";
+    }
 
-	if (not $template) {
-		$log->warn("No template passed to autoconfig.");
-		return "No template passed to autoconfig.";
-	}
+    if (not $template)
+    {
+        $log->warn("No template passed to autoconfig.");
+        return "No template passed to autoconfig.";
+    }
 
-	foreach my $device_key (keys %$devices) {
-		my $device       = $devices->{$device_key};
-		my $child_pid;   # PID of the child process (if used)
+    foreach my $device_key (keys %$devices)
+    {
+        my $device       = $devices->{$device_key};
+        my $child_pid;   # PID of the child process (if used)
 
         if ($log->is_trace)
         {
             $log->trace("Device about to be configured: " . Dumper($device));
         }
 
-		while (keys %{ $CHILD_PROCESSES->{'active'} } > $self->max_children) {
-			$log->debug("Reached max # of child processes (" . $self->max_children
-							. ") Waiting for some processes to clear up...");
-			&_reaper() if $ZOMBIES;
-			sleep(1);
-		}
+        while (keys %{ $CHILD_PROCESSES->{'active'} } > $self->max_children)
+        {
+            $log->debug("Reached max # of child processes (" . $self->max_children
+                            . ") Waiting for some processes to clear up...");
+            &_reaper() if $ZOMBIES;
+            sleep(1);
+        }
 
-		if ($self->bulk_mode) {
-			$log->trace("Forking process");
-			$child_pid = fork();
-			#$log->trace("Fork created for Parent $$ - Child $child_pid. Device " . $device->hostname);
-			if ($child_pid == -1) {
-				# Failed to fork!
-				$log->warn("Failed to create child process for device " . $device->hostname);
-				next;
-			} elsif ($child_pid) {
-				# I'm the parent
-				$log->debug("Parent $$ - Child $child_pid - Current Device : " . $device->hostname);
-				$log->debug("Child $child_pid bulk_mode = " . $self->bulk_mode());
-				$CHILD_PROCESSES->{'active'}->{$child_pid} = $device->hostname;
-				$CHILD_PROCESSES->{'info'}->{$child_pid}   = $device->hostname;
-				next;
-			} else {
-				# This is the child
-				$log->debug("Child process started for " . $device->hostname);
-			}
-		}
+        if ($self->bulk_mode)
+        {
+            $log->trace("Forking process");
+            $child_pid = fork();
+            #$log->trace("Fork created for Parent $$ - Child $child_pid. Device " . $device->hostname);
+            if ($child_pid == -1)
+            {
+                # Failed to fork!
+                $log->warn("Failed to create child process for device " . $device->hostname);
+                next;
+            }
+            elsif ($child_pid)
+            {
+                # I'm the parent
+                $log->debug("Parent $$ - Child $child_pid - Current Device : " . $device->hostname);
+                $log->debug("Child $child_pid bulk_mode = " . $self->bulk_mode());
+                $CHILD_PROCESSES->{'active'}->{$child_pid} = $device->hostname;
+                $CHILD_PROCESSES->{'info'}->{$child_pid}   = $device->hostname;
+                next;
+            }
+            else
+            {
+                # This is the child
+                $log->debug("Child process started for " . $device->hostname);
+            }
+        }
 
-		if ($device->provision) {
-			$device->hostname =~ /\A(.*)\@(.*)$/;
-			if ($1 and $2) {
-				# Well formed provisioning hostname
-				$failed_ping_test = &_failed_ping_test($2);
-			} else {
-				# Poorly formed or normal hostname
-				$log->warn("Provisioning hostname " . $device->hostname . " poorly formed.");
-				$failed_ping_test = TRUE;
-			}
-		} else {
-			$failed_ping_test = &_failed_ping_test($device->hostname);
-		}
+        if ($device->provision)
+        {
+            $device->hostname =~ /\A(.*)\@(.*)$/;
+            if ($1 and $2)
+            {
+                # Well formed provisioning hostname
+                $failed_ping_test = &_failed_ping_test($2);
+            }
+            else
+            {
+                # Poorly formed or normal hostname
+                $log->warn("Provisioning hostname " . $device->hostname . " poorly formed.");
+                $failed_ping_test = TRUE;
+            }
+        }
+        else
+        {
+            $failed_ping_test = &_failed_ping_test($device->hostname);
+        }
 
-		if ($failed_ping_test) {
-			my $hostname = $device->hostname || $device_key;
-			$log->warn("$hostname was not reachable via ping.  Aborting configuration attempt.");
-			if ($self->bulk_mode) {
-				exit;
-			} else {
-				next;
-			}
-		}
+        if ($failed_ping_test)
+        {
+            my $hostname = $device->hostname || $device_key;
+            $log->warn("$hostname was not reachable via ping.  Aborting configuration attempt.");
+            if ($self->bulk_mode)
+            {
+                exit;
+            }
+            else
+            {
+                next;
+            }
+        }
 
         # Establish a connection to the device first
         $device->provision and $device->console_connect();
@@ -488,23 +542,26 @@ sub autoconfig {
         }
         $device->end_session();
 
-		if ($self->bulk_mode) {
-			if ($child_pid == 0) {
-				$log->trace("Terminating child process $$ for host " . $device->hostname);
-				exit;
-			}
-		}
-	}
+        if ($self->bulk_mode)
+        {
+            if ($child_pid == 0)
+            {
+                $log->trace("Terminating child process $$ for host " . $device->hostname);
+                exit;
+            }
+        }
+    }
 
-	while (keys %{ $CHILD_PROCESSES->{'active'}}) {
-		$log->debug("Waiting for child processes to terminate. Sleeping for 5 seconds.");
-		&_reaper() if $ZOMBIES;
-		sleep(5);
-	}
+    while (keys %{ $CHILD_PROCESSES->{'active'}})
+    {
+        $log->debug("Waiting for child processes to terminate. Sleeping for 5 seconds.");
+        &_reaper() if $ZOMBIES;
+        sleep(5);
+    }
 
-	$log->info("Autoconfig Finished.");
+    $log->info("Autoconfig Finished.");
 
-	return;
+    return;
 }
 
 ############################################################
@@ -525,40 +582,44 @@ sub autoconfig {
 # Return TRUE if it's not
 ########################################
 sub _file_not_usable {
-	my $filename = shift;
-	my $file_descrip = shift;
-	my $working_dir  = getcwd();
-	my $log = Log::Log4perl->get_logger("Net::Autoconfig");
-	$file_descrip = $file_descrip || "";
+    my $filename = shift;
+    my $file_descrip = shift;
+    my $working_dir  = getcwd();
+    my $log = Log::Log4perl->get_logger("Net::Autoconfig");
+    $file_descrip = $file_descrip || "";
 
-	if (! $filename) {
-		$log->warn("$file_descrip: filename not defined.");
-		return TRUE;
-	}
+    if (! $filename)
+    {
+        $log->warn("$file_descrip: filename not defined.");
+        return TRUE;
+    }
 
-	if (-d $filename) {
-		$log->warn("$file_descrip: filename, '$filename' is a directory.");
-		return TRUE;
-	}
+    if (-d $filename)
+    {
+        $log->warn("$file_descrip: filename, '$filename' is a directory.");
+        return TRUE;
+    }
 
-	if (not -e $filename) {
-		$log->warn("$file_descrip: '$filename', does not exist.");
-		return TRUE;
-	}
+    if (not -e $filename)
+    {
+        $log->warn("$file_descrip: '$filename', does not exist.");
+        return TRUE;
+    }
 
-	if (not -r $filename) {
-		$log->warn("$file_descrip: '$filename', is not readable.  Check file permissions.");
-		return TRUE;
-	}
+    if (not -r $filename)
+    {
+        $log->warn("$file_descrip: '$filename', is not readable.  Check file permissions.");
+        return TRUE;
+    }
 
-	# Ergo, it must be okay!
-	return FALSE;
+    # Ergo, it must be okay!
+    return FALSE;
 }
 
 
 sub _failed_ping_test {
-	my $hostname = shift;
-	return;
+    my $hostname = shift;
+    return;
 }
 
 ##############################
@@ -571,29 +632,30 @@ sub _failed_ping_test {
 # and which ones failed; which ones/how many are active
 ##############################
 sub _reaper {
-	my $zombie;
-	my $log = Log::Log4perl->get_logger("Net::Autoconfig");
+    my $zombie;
+    my $log = Log::Log4perl->get_logger("Net::Autoconfig");
 
-	$log->trace("Start reaping zombies.");
-	$log->trace("Number of zombies        : $ZOMBIES");
-	$log->trace("Number of active children: " . int(keys %{ $CHILD_PROCESSES->{active} }));
+    $log->trace("Start reaping zombies.");
+    $log->trace("Number of zombies        : $ZOMBIES");
+    $log->trace("Number of active children: " . int(keys %{ $CHILD_PROCESSES->{active} }));
 
-	$ZOMBIES = 0;
+    $ZOMBIES = 0;
 
-	# This is a little tricky.
-	# waitpid returns the process id of a zombie that needs to
-	# be reaped.  It returns 0 for active procsses.  It returns
-	# -1 when there are no child processes left.
-	# You'll see code that has <blah> != -1, We want to
-	# keep going when child processes are active and
-	# only reap the dead processes.
-	while (($zombie = waitpid(-1, WNOHANG)) > 0) {
-		$CHILD_PROCESSES->{'finished'}->{$zombie} = $? >> 8;
-		delete $CHILD_PROCESSES->{'active'}->{$zombie};
-	}
+    # This is a little tricky.
+    # waitpid returns the process id of a zombie that needs to
+    # be reaped.  It returns 0 for active procsses.  It returns
+    # -1 when there are no child processes left.
+    # You'll see code that has <blah> != -1, We want to
+    # keep going when child processes are active and
+    # only reap the dead processes.
+    while (($zombie = waitpid(-1, WNOHANG)) > 0)
+    {
+        $CHILD_PROCESSES->{'finished'}->{$zombie} = $? >> 8;
+        delete $CHILD_PROCESSES->{'active'}->{$zombie};
+    }
 
-	$log->trace("Done reaping zombies.");
-	return;
+    $log->trace("Done reaping zombies.");
+    return;
 }
 
 # Module must return true.

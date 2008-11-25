@@ -1,5 +1,8 @@
 Revision history for Perl extension Net::Autoconfig.
 
+1.01  Tue Nov 25 8:06:38 2008
+    - Fixing style/formatting issues
+
 1.00  Tue Sep 23 16:05:28 2008
 	- original version; created by h2xs 1.23 with options
 		-X -n Net::Autoconfig
