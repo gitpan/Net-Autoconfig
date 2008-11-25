@@ -11,7 +11,7 @@ use Expect;
 use Net::Ping;
 use Data::Dumper;
 
-our $VERSION = '1.00';
+our $VERSION = '1.01';
 
 #################################################################################
 ## Constants and Global Variables

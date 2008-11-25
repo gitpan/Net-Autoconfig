@@ -1,8 +1,6 @@
 Net-Autoconfig version 1.00
 ===========================
 
-We supply the man-power, you supply the talent.
-
 This is a module to allow the bulk upgrade and configuration
 of many network devices (switches, routers, probably firewalls)
 of any vendor (HP, Cisco, ...) in an automated fasion.  It uses

@@ -8,7 +8,7 @@ use base "Net::Autoconfig::Device";
 use Log::Log4perl qw(:levels);
 use Expect;
 
-our $VERSION = '1.00';
+our $VERSION = '1.01';
 
 #################################################################################
 ## Constants and Global Variables

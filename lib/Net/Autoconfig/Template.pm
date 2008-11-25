@@ -8,7 +8,7 @@ use base "Net::Autoconfig";
 use Log::Log4perl qw(:levels);
 use Data::Dumper;
 
-our $VERSION = '1.00';
+our $VERSION = '1.01';
 
 #################################################################################
 ## Constants and Global Variables
