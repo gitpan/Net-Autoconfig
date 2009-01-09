@@ -11,42 +11,20 @@ use Data::Dumper;
 use POSIX ":sys_wait_h";
 use Cwd;
 
-our $VERSION = '1.01';
-our $PATH    = getcwd();
+our $VERSION = '1.11';
 
+################################################################################
 # Constants and Global Variables
 ################################################################################
 
-# Initialize logging
-{
-    my $filename  = join("/",$PATH,"logging.conf");
-    if (-e $filename)
-    {
-        eval
-        {
-            Log::Log4perl::init($filename);
-        };
-        if ($@) {
-            print STDERR "Failed to initialize '$filename' even though it exists.\n";
-            print STDERR "Logging to STDERR.";
-            Log::Log4perl->easy_init($WARN);
-        }
-    }
-    else
-    {
-        print STDERR "logging.conf does not exist!";
-        print STDERR "Logging to STDERR.";
-        Log::Log4perl->easy_init($INFO);
-    }
-}
-
-
-use constant TRUE   =>  1;
-use constant FALSE  =>  0;
+use constant TRUE	=>	1;
+use constant FALSE	=>	0;
 
 use constant MAXIMUM_MAX_CHILDREN => 256; # Absolute Maximum # of child processes (if using bulk mode)
 use constant DEFAULT_MAX_CHILDREN => 64;  # Default max # of child processes (if using bulk mode)
 use constant MINIMUM_MAX_CHILDREN => 1;   # Absolute Minimum # of child processes (if using bulk mode)
+
+use constant DEFAULT_LOGFILE      => 'logging.conf';
 
 use constant MAXIMUM_LOG_LEVEL    => 5;   # Absolute Maximum log level
 use constant DEFAULT_LOG_LEVEL    => 3;   # Set the default log level to info
@@ -94,19 +72,70 @@ $SIG{'CHLD'} = sub { $ZOMBIES++ };
 #
 ########################################
 sub new {
-    my $invocant = shift; # calling class   
-    my $class    = ref($invocant) || $invocant;
-    my $log      = Log::Log4perl->get_logger("Net::Autoconfig");
-    my $self = {
-                bulk_mode       =>  DEFAULT_BULK_MODE,
-                log_level       =>  DEFAULT_LOG_LEVEL,
-                max_children    =>  DEFAULT_MAX_CHILDREN,
-                };
-    
-    $log->info("########################################");
-    $log->info("#       Net::Autoconfig Started        #");
-    $log->info("########################################");
-    return bless $self, $class;
+	my $invocant  = shift; # calling class	
+	my $class     = ref($invocant) || $invocant;
+	my $log       = Log::Log4perl->get_logger("Net::Autoconfig");
+    my %user_data = @_;
+
+	my $self = {
+				bulk_mode		=>	DEFAULT_BULK_MODE,
+				log_level		=>	DEFAULT_LOG_LEVEL,
+				max_children	=>	DEFAULT_MAX_CHILDREN,
+                logfile         =>  DEFAULT_LOGFILE,
+				};
+
+    $self = bless $self, $class;
+
+    $self->logfile(      $user_data{'logfile'} );
+    $self->init_logging();
+
+    $self->bulk_mode(    $user_data{'bulk_mode'} );
+    $self->log_level(    $user_data{'log_level'} );
+    $self->max_children( $user_data{'max_children'} );
+
+	$log->info("########################################");
+	$log->info("#       Net::Autoconfig Started        #");
+	$log->info("########################################");
+	return $self;
+}
+
+########################################
+# init_logging
+# public method
+#
+# Initialize logging for Net::Autoconfig.
+# If multiple Net::Autoconfig objects
+# are created, calling this will affect
+# all of them; it changes their logging
+# definitions.
+#
+# Returns undef
+########################################
+sub init_logging {
+    my $self = shift;
+
+    # XXX - Setup a saner, \$log_string
+    # config so it's not just to stdout/stderr
+
+    if ( -e $self->logfile )
+    {
+		eval {
+			Log::Log4perl::init( $self->logfile );
+		};
+		if ($@) {
+			print STDERR "Failed to initialize '" . $self->logfile
+                          . "' even though it exists.\n";
+			print STDERR "Logging to STDERR.";
+			Log::Log4perl->easy_init($WARN);
+		}
+    }
+    else
+    {
+		print STDERR "logging.conf does not exist!";
+		print STDERR "Logging to STDERR.";
+		Log::Log4perl->easy_init($INFO);
+    }
+    return;
 }
 
 ########################################
@@ -237,6 +266,62 @@ sub get_report {
 }
 
 ########################################
+# logfile
+# public method
+#
+# Accessor/Mutator
+# 
+####################
+# Mutator
+#
+# Sets the logfile if it exists
+# (assumes current working directory if
+# the filename is not specified absolutely.)
+#
+# Else, it sets the logfile to the default.
+#
+# Returns:
+#   Success =>  undef
+#   Failure =>  error message
+####################
+# Accessor
+#
+# Returns
+#   the logfile's absolute path
+########################################
+sub logfile {
+    my $self          = shift;
+    my $logfile       = shift;
+    my $return_value;
+
+    if ( defined $logfile )
+    {
+        # Check for abs path
+        if ( $logfile !~ /^\// )
+        {
+            $logfile = join('/', getcwd(), $logfile);
+        }
+
+        if (-e $logfile)
+        {
+            $self->{'logfile'} = $logfile;
+        }
+        else
+        {
+            $self->{'logfile'} = DEFAULT_LOGFILE;
+            print STDERR "\n'$logfile' either does not exist or is unreadable\n";
+            print STDERR "\nUsing default logfile " . DEFAULT_LOGFILE . "\n";
+        }
+        undef $return_value;
+    }
+    else
+    {
+        $return_value = $self->{'logfile'};
+    }
+    return $return_value;
+}
+
+########################################
 # load_devices
 # public method
 #
@@ -260,7 +345,12 @@ sub load_devices {
     my $file_hash_depth;  # an integer of the number of levels of hashes in the device file
     my $current_device;   # the name of the current device to add parameters too
     $filename or $filename = "";
-    $filename = join("/", $PATH, $filename);
+
+    # Check for abs path
+    if ( $filename !~ /\// )
+    {
+        $filename = join("/", getcwd(), $filename);
+    }
 
     (&_file_not_usable($filename, "device config")) and return;
 
@@ -361,7 +451,7 @@ sub load_template {
     my $log = Log::Log4perl->get_logger('Net::Autoconfig');
     my $template;
     $filename or $filename = "";
-    $filename = join("/", $PATH, $filename);
+    $filename = join("/", getcwd(), $filename);
 
     (&_file_not_usable($filename, "template file")) and return;
 

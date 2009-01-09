@@ -1,5 +1,10 @@
 Revision history for Perl extension Net::Autoconfig.
 
+1.10  Mon Nov 24 16:29:44 2008
+    - Changing logging initilization methods
+    - Actually using configurable options instead of
+        just using the default values.
+
 1.01  Tue Nov 25 8:06:38 2008
     - Fixing style/formatting issues
 

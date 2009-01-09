@@ -11,7 +11,7 @@ use Expect;
 use Net::Ping;
 use Data::Dumper;
 
-our $VERSION = '1.01';
+our $VERSION = '1.02';
 
 #################################################################################
 ## Constants and Global Variables
@@ -35,23 +35,25 @@ use constant DEFAULT_ACCESS_METHOD     => "ssh";
 # device    =>  matching regex tables
 ####################
 use constant SPECIFIC_DEVICE_MODEL_REGEX => {
+    hp2512        =>    'Switch 2512',
+    hp2524        =>    'Switch 2524',
     hp2626        =>    'Switch 2626\s',
     hp2650        =>    'Switch 2650\s',
     hp2626pwr     =>    'Switch 2626-PWR',
     hp2650pwr     =>    'Switch 2650-PWR',
-    hp2512        =>    'Switch 2512',
-    hp2524        =>    'Switch 2524',
     hp2824        =>    'Switch 2824',
     hp2848        =>    'Switch 2848',
     'hp2810-24g'  =>    'Switch 2810-24',
     'hp2810-48g'  =>    'Switch 2810-48',
     'hp2900-24g'  =>    'Switch 2900-24',
     'hp2900-48g'  =>    'Switch 2900-48',
+    'hp3500-24g'  =>    'Switch 3500-24',
+    'hp3500-48g'  =>    'Switch 3500-48',
     hp4104        =>    'Switch 4104',
     hp4108        =>    'Switch 4108',
     hp4208        =>    'Switch 4208',
     hp6108        =>    'Switch 6108',
-    hub24         =>    'J2603A/B',
+    hub224        =>    'J2603A/B',
     hub48         =>    'J2603A ',
     c3550         =>    'C3550',
     c3560         =>    'C3560',
@@ -61,11 +63,12 @@ use constant SPECIFIC_DEVICE_MODEL_REGEX => {
 
 use constant GENERIC_DEVICE_MODEL_REGEX => {
     hp1600        =>    'Switch 16',
-    hp2600        =>    'Switch 26',
     hp2500        =>    'Switch 25',
+    hp2600        =>    'Switch 26',
     hp2800        =>    'Switch 28(2|4)',
     hp2810        =>    'Switch 2810',
     hp2900        =>    'Switch 29',
+    hp3500        =>    'Switch 35',
     hp4100        =>    'Switch 41',
     hp4200        =>    'Switch 42',
     hp6100        =>    'Switch 61',
@@ -84,18 +87,34 @@ use constant ALL_TYPES_MODEL_HASH => {
     hp2800        =>  'hp_switch',
     hp2810        =>  'hp_switch',
     hp2900        =>  'hp_switch',
+    hp3500        =>  'hp_switch',
     hp4100        =>  'hp_switch',
     hp4200        =>  'hp_switch',
     hp6100        =>  'hp_switch',
     hp4000        =>  'hp_switch',
+    hp8000        =>  'hp_switch',
+    hp224         =>  'hp_switch',
     hub           =>  'hp_hub',
     c3xxx         =>  'cisco_switch',
     c29xx         =>  'cisco_switch',
 };
 
 use constant VENDORS_REGEX => {
-    HP            =>  '(?i:hp|Switch \d{3,4}|Hewlett)',
-    Cisco         =>  '(?i:cisco|C\d{4})',
+    'Switch 16'         =>  'HP',
+    'Switch 26'         =>  'HP',
+    'Switch 25'         =>  'HP',
+    'Switch 28(2|4)'    =>  'HP',
+    'Switch 2810'       =>  'HP',
+    'Switch 29'         =>  'HP',
+    'Switch 35'         =>  'HP',
+    'Switch 41'         =>  'HP',
+    'Switch 42'         =>  'HP',
+    'Switch 61'         =>  'HP',
+    'Switch 40'         =>  'HP4000',
+    'Switch 80'         =>  'HP4000',
+    '1991-1994'         =>  'HPHub',
+    'J2603A'            =>  'HPHub',
+    '(?i:cisco|C\d{4})' =>  'Cisco',
 };
 
 ####################
@@ -483,6 +502,13 @@ sub session {
     defined $session and $self->{'session'} = scalar $session;
     return defined $session ? undef : $self->{'session'};
 }
+sub paging_disabled {
+    my $self = shift;
+    my $paging_disabled = shift;
+    defined $paging_disabled and $self->{'paging_disabled'} = scalar $paging_disabled;
+    return defined $paging_disabled ? undef : $self->{'paging_disabled'};
+}
+
 
 ########################################
 # access_method
@@ -986,6 +1012,8 @@ sub configure {
     my $log           = Log::Log4perl->get_logger("Net::Autoconfig");
     my $last_cmd;     # record keeping for error reporting
 
+    $log->trace("Using the default configure method!");
+
 
     # Let's do some sanity checking
     if (not $template_data)
@@ -1080,6 +1108,13 @@ sub configure {
             {
                 $cmd->{cmd} = $new_cmd;
             }
+
+            #Re-insert command characters
+            # i.e. tabs and newlines
+            $cmd->{cmd} =~ s/\\t/\t/g;
+            $cmd->{cmd} =~ s/\\n/\n/g;
+            $log->trace("\$cmd->{cmd} after replacing tabs and newlines '"
+                        . $cmd->{cmd} . "'");
         }
 
 
@@ -1121,6 +1156,7 @@ sub configure {
             $log->debug(Dumper(%$cmd));
             return "Command failed.";
         }
+        sleep(1);
     }
 
     # One last check to see if the last comand was invalid.
@@ -1614,6 +1650,96 @@ sub error_end_session {
 }
 
 ########################################
+# replace_command_variables
+# public method
+#
+# Replaces variables in comands
+#
+# Expects:
+# a command hash ref
+#
+# Returns
+# Success   = sets the cmd->{cmd} value
+#             returns undef
+# Failure   = returns an error message
+########################################
+sub replace_command_variables {
+    my $self    = shift;
+    my $log     = Log::Log4perl->get_logger( $self );
+    my $cmd     = shift; # The command hash
+    my $old_cmd;         # The command with variables that need replacing
+    my $new_cmd;         # new string with variables replaced
+
+    if ( not $cmd )
+    {
+        $log->warn("No command hash reference passed.");
+        return "No comand hash reference passed.";
+    }
+    elsif ( not ref($cmd) eq 'HASH' )
+    {
+        $log->warn("Command passed, but it was not a hash reference.");
+        return "Command passed, but it was not a hash reference.";
+    }
+
+    $old_cmd = $cmd->{cmd};
+
+    # Do some sanity checking
+    if ( not $old_cmd )
+    {
+        $log->info("No command specified.  Using \"\".");
+        $old_cmd = "";
+        $new_cmd = $old_cmd;
+    }
+    $new_cmd = $old_cmd;
+
+    # matches $variable_name; not \$variable_name
+    # "-" counts as a word boundry, which is good for things like "range $a-$b"
+    FIND_VARIABLE:
+    while ($old_cmd =~ /[^\\]\$(\w+)/g)
+    {
+        my $replacement = $self->get($1);
+        if (defined $replacement)
+        {
+            $log->trace("Replacing '$1' with '$replacement' for cmd "
+                        . "'$old_cmd' for device " . $self->hostname);
+            $new_cmd =~ s/\$$1/$replacement/;
+        }
+        else
+        {
+            if ( $cmd->{required} )
+            {
+                my $message = "'$1' not defined for required command "
+                              . "'$old_cmd' for " . $self->hostname;
+                $log->warn( $message );
+                return $message;
+            }
+            else
+            {
+                $log->info("'$1' not defined for optinal command "
+                            . "'$old_cmd' for " . $self->hostname);
+            }
+        }
+    }
+
+    # Since we escape the $s, remove the
+    # escape characters.
+    $new_cmd =~ s/\\\$/\$/g;
+    if (not $new_cmd eq $old_cmd)
+    {
+        $cmd->{cmd} = $new_cmd;
+    }
+
+    #Re-insert command characters
+    # i.e. tabs and newlines
+    if ( $cmd->{cmd} )
+    {
+        $cmd->{cmd} =~ s/\\t/\t/g;
+        $cmd->{cmd} =~ s/\\n/\n/g;
+        $log->trace("\$cmd->{cmd} after replacing tabs and newlines '"
+                    . $cmd->{cmd} . "'");
+    }
+    return undef;
+}
 
 
 ############################################################
@@ -1682,17 +1808,17 @@ sub _host_not_reachable {
 ########################################
 sub _get_vendor_from_string {
     my $string         = shift;
-    my $vendors        = VENDORS_REGEX;      # a string that holds the vendor
+    my $vendors        = VENDORS_REGEX;      # a hash ref of regex => vendors
     my $device_model;  # a string that links to the module for that device type
     my $log            = Log::Log4perl->get_logger("Net::Autoconfig");
 
-    foreach my $vendor_key (keys %$vendors)
+    foreach my $regex (keys %$vendors)
     {
-        my $regex = $vendors->{$vendor_key};
+        my $vendor = $vendors->{$regex};
         if ($string =~ /$regex/)
         {
-            $log->trace("Vendor matched: $regex => $vendor_key");
-            $device_model = $vendor_key;
+            $log->trace("Vendor matched: $regex => $vendor");
+            $device_model = $vendor;
             last;
         }
     }

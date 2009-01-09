@@ -6,7 +6,7 @@
 # change 'tests => 1' to 'tests => last_test_to_print';
 
 use strict;
-use Test::More tests => 127;
+use Test::More tests => 138;
 BEGIN { use_ok('Net::Autoconfig::Device') };
 
 #########################
@@ -61,7 +61,15 @@ my @methods = qw(
 	snmp_community
 	snmp_version
 	session
+    paging_disabled
 );
+
+can_ok( 'Net::Autoconfig::Device',
+        'invalid_cmd_regex',
+        'paging_disabled',
+        'replace_command_variables',
+        @methods,
+        );
 
 foreach my $method (@methods) {
 	if ($method =~ /snmp_version/) {
@@ -75,7 +83,6 @@ foreach my $method (@methods) {
 	ok( ! $device->$method(), "'$method' - 6 - should have returned a FALSE value.");
 }
 
-can_ok("Net::Autoconfig::Device", @methods, 'invalid_cmd_regex');
 
 # Handle special mutator/accessor data
 $device = Net::Autoconfig::Device->new();
@@ -158,3 +165,22 @@ ok($device->configure($template), "Should fail - no valid session");
 is($device->invalid_cmd_regex, '[iI]nvalid input', "Default invalid cmd regex");
 is($device->invalid_cmd_regex('hello'), undef, "Setting invalid cmd regex");
 is($device->invalid_cmd_regex(), 'hello', "Getting user defined invalid cmd regex");
+
+####################
+# replace command variables
+####################
+
+my $cmd = {};
+
+ok( $device->replace_command_variables, "No command passed, should return an error message");
+is( $device->replace_command_variables( $cmd ), undef, "No command in hash ref, should return undef");
+
+$cmd->{cmd} = "test";
+is( $device->replace_command_variables( $cmd ), undef, "Command passed, should return undef");
+
+$cmd->{cmd} = '$test $test';
+is( $device->replace_command_variables( $cmd ), undef, "Invalid, but not required  variables passed, should return undef");
+
+$cmd->{required} = 1;
+ok( $device->replace_command_variables( $cmd ), "Invalid variables passed, this should return an error message");
+
