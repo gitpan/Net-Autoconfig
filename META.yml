@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name:                Net-Autoconfig
-version:             1.11
+version:             v1.12.2
 abstract:            Perl extension for provisioning or reconfiguring network devices.
 license:             ~
 author:              
@@ -8,9 +8,14 @@ author:
 generated_by:        ExtUtils::MakeMaker version 6.42
 distribution_type:   module
 requires:     
+    Cwd:                           3.2501
+    Data::Dumper:                  2.121
     Expect:                        1.21
     Log::Dispatch::Screen:         1.17
     Log::Log4perl:                 1.15
+    Net::Ping:                     2.31
+    Net::SNMP:                     5.002
+    version:                       0.74
 meta-spec:
     url:     http://module-build.sourceforge.net/META-spec-v1.3.html
     version: 1.3

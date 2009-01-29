@@ -127,7 +127,7 @@ ok(Net::Autoconfig->load_devices("t/devices.cfg"), "Testing loading a device con
 # Test device config file
 $devices = $autoconf->load_devices("t/devices.cfg");
 @devices = $autoconf->load_devices("t/devices.cfg");
-is(ref($devices), "HASH", "Testing scalar context for get devices");
+is(ref($devices), "ARRAY", "Testing scalar context for get devices");
 is(ref(@devices), "", "Testing array context of get devices");
 
 ########################################
@@ -150,8 +150,8 @@ is(ref(%template), "", "Testing array ontext of load_template");
 
 ok($autoconf->autoconfig(), "null input to autoconfig, should return true aka failure");
 ok($autoconf->autoconfig("asdf",undef), "null input to autoconfig, should return true aka failure");
-like( $autoconf->autoconfig("asdf"), qr/Devices were not passed as a hash ref/, "Non-hash ref passed for devices");
-like( $autoconf->autoconfig({}), qr/No template passed to autoconfig/, "Non template passed");
+like( $autoconf->autoconfig("asdf"), qr/Devices were not passed as an array ref/, "Non-array ref passed for devices");
+like( $autoconf->autoconfig([]), qr/No template passed to autoconfig/, "Non template passed");
 
 ########################################
 # Testing get_report

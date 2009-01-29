@@ -1,5 +1,15 @@
 Revision history for Perl extension Net::Autoconfig.
 
+1.12.2 Thu Jan 29 11:39:53 2009
+    - Changing versioning method
+    - Now requires perl >= 5.10.0
+    - Fixing device.cfg parsing issues
+    - Fixing incorrect device discoveries
+
+1.11  Thu Jan 08 16:24:27 2009
+    - Adding HP4000.pm
+    - Fixing bugs in most modules
+
 1.10  Mon Nov 24 16:29:44 2008
     - Changing logging initilization methods
     - Actually using configurable options instead of

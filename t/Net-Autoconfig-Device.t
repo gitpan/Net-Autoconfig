@@ -71,15 +71,29 @@ can_ok( 'Net::Autoconfig::Device',
         @methods,
         );
 
-foreach my $method (@methods) {
-	if ($method =~ /snmp_version/) {
+foreach my $method (@methods)
+{
+	if ($method =~ /snmp_version/)
+    {
 		is($device->$method(""), undef, "Setting snmp_version to ''");
 	}
+
+    if ($method =~ /model/)
+    {
+        ok( ! $device->$method(), "'$method' - 1 - should have returned a FALSE value.");
+        is(ref($device->$method("test")), ref([]), "'$method' - 2 - should have returned an array ref");
+        is($device->$method(), "test", "'$method' - 3 - should have returned 'test' value.");
+        is($device->$method(undef), "test", "'$method' - 4 - should have returned 'test'.");
+        is(ref($device->$method("")), ref([]), "'$method' - 5 - should have returned an array ref.");
+        ok( ! $device->$method(), "'$method' - 6 - should have returned a FALSE value.");
+        next;
+    }
+
 	ok( ! $device->$method(), "'$method' - 1 - should have returned a FALSE value.");
-	is($device->$method("test"), undef, "'$method' - 2 - should have returned an undef value.");
+	is($device->$method("test"), undef, "'$method' - 2 - should have returned undef");
 	is($device->$method(), "test", "'$method' - 3 - should have returned 'test' value.");
 	is($device->$method(undef), "test", "'$method' - 4 - should have returned 'test'.");
-	is($device->$method(""), undef, "'$method' - 5 - should have returned an undef value.");
+	is($device->$method(""), undef, "'$method' - 5 - should have returned undef.");
 	ok( ! $device->$method(), "'$method' - 6 - should have returned a FALSE value.");
 }
 

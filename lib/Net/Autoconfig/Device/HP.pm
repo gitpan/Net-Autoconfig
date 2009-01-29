@@ -7,8 +7,7 @@ use warnings;
 use base "Net::Autoconfig::Device";
 use Log::Log4perl qw(:levels);
 use Expect;
-
-our $VERSION = '1.02';
+use version; our $VERSION = version->new('v1.2.2');
 
 #################################################################################
 ## Constants and Global Variables
@@ -266,6 +265,7 @@ sub connect {
     # accept the ssh key
     # send the username
     # send the password
+    # bypass the initial login screen
     # verify connection (exec or priv exec mode)
     ####################
     push(@expect_commands, [
@@ -278,22 +278,22 @@ sub connect {
                             eval $expect_priv_mode_cmd,
                     ]);
     push(@expect_commands, [
+                            eval $expect_username_cmd,
+                            eval $expect_password_cmd,
                             # Get past the initial login banner
                             eval $expect_hp_continue_cmd,
-
-                            eval $expect_username_cmd,
-                            eval $expect_password_cmd,
-                            eval $expect_exec_mode_cmd,
-                            eval $expect_priv_mode_cmd,
-                    ]);
-    push(@expect_commands, [
-                            eval $expect_username_cmd,
-                            eval $expect_password_cmd,
                             eval $expect_exec_mode_cmd,
                             eval $expect_priv_mode_cmd,
                     ]);
     push(@expect_commands, [
                             eval $expect_password_cmd,
+                            # Get past the initial login banner
+                            eval $expect_hp_continue_cmd,
+                            eval $expect_exec_mode_cmd,
+                            eval $expect_priv_mode_cmd,
+                    ]);
+    push(@expect_commands, [
+                            eval $expect_hp_continue_cmd,
                             eval $expect_exec_mode_cmd,
                             eval $expect_priv_mode_cmd,
                     ]);

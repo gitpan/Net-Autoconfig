@@ -10,8 +10,7 @@ use Net::Autoconfig::Template;
 use Data::Dumper;
 use POSIX ":sys_wait_h";
 use Cwd;
-
-our $VERSION = '1.11';
+use version; our $VERSION = version->new("v1.12.2");
 
 ################################################################################
 # Constants and Global Variables
@@ -332,18 +331,20 @@ sub logfile {
 # E.g. { hostname => Net::Autoconfig::Device }
 #
 # Returns:
-# array context     =>  a hash of Devices
-# scalar context    =>  a hash ref of Devices
+# array context     =>  an array of Devices
+# scalar context    =>  an array ref of Devices
 # undef             =>  failure
 ########################################
 sub load_devices {
     my $self = shift;
     my $filename = shift;
     my $log      = Log::Log4perl->get_logger("Net::Autoconfig");
-    my $devices  = {};    # an array ref of Net::Autoconfig::Devices, key = hostname
+    my $devices  = [];    # an array ref of Net::Autoconfig::Devices, key = hostname
     my $file_format;      # indicates if the file is a hash of arrays, or as hash of hashes of arrays
     my $file_hash_depth;  # an integer of the number of levels of hashes in the device file
     my $current_device;   # the name of the current device to add parameters too
+    my $line_counter;     # The current line we're on in the device config file (used for logging)
+    my $default_device;   # The default device, helps populate new devices
     $filename or $filename = "";
 
     # Check for abs path
@@ -365,60 +366,72 @@ sub load_devices {
     }
 
     # Create this here in case someone decides not to use the default
-    # device.
-    $devices->{default} = Net::Autoconfig::Device->new();
+    # device.  Re-set the auto-disover bit
+    $default_device = Net::Autoconfig::Device->new( 'auto_discover' => FALSE );
+    $default_device->hostname('autoconfig-default');
+
     while (my $line = <DEVICES>)
     {
         chomp $line;
         next if $line =~ /^#/;
         next if $line =~ /^\s*$/;
 
+        $line_counter++;
+
         if ($line =~ /^:/)
         {
             # some type of host declaration (host or default)
             $line =~ s/^://;
             $line =~ s/:$//;
-            $current_device = $line;
-            if ($current_device =~ /default/)
+            $line =~ s/\s*(.*?)\s*/$1/; #remove preceding and trailing whitespace
+
+            if (not $line)
             {
-                # Allow redefinition of the default device.
-                $devices->{default} = Net::Autoconfig::Device->new();
-                $devices->{default}->set("auto_discover", TRUE);
+                $log->warn("In device file, undef device '::' line at $line_counter.");
+                next;
+            }
+
+            if ($line =~ /default/i)
+            {
+                $current_device = $default_device;
             }
             elsif ($line =~ /^end$/)
             {
+                if ($current_device->hostname !~ /autoconfig-default/i)
+                {
+                    $log->trace("Adding " . $current_device->hostname
+                                . " to the list of devices.");
+                    $current_device = $current_device->auto_discover;
+                    push(@$devices, $current_device);
+                }
                 undef $current_device;
             }
             else
             {
-                if (not $current_device)
-                {
-                    $log->warn("No device configured!");
-                    next;
-                }
-                $devices->{$current_device} = Net::Autoconfig::Device->new(
-                                                %{ $devices->{default}->get() },
-                                                'hostname' => $current_device,
+                $current_device = Net::Autoconfig::Device->new(
+                                                $default_device->get(),
+                                                'hostname' => $line,
                                                 );
             }
         }
-        elsif ($line =~ /\s*(\w+)\s*=\s*(.*?)\s*$/)
+        elsif ($line =~ /\s*(.*?)\s*=\s*(.*?)\s*$/)
         {
             my $key = $1;
             my $value = $2;
             if (not $current_device)
             {
-                $log->warn("No device is currently configured!  Line = '$line'.");
+                $log->warn("No device is currently configured at line $line_counter.");
                 next;
             }
             if ($log->is_trace())
             {
-                $log->trace("line = '$line'");
-                $log->trace("key = '$key'");
-                $log->trace("value = '$value'");
+                $log->trace("line # = $line_counter");
+                $log->trace("line   = '$line'");
+                $log->trace("key    = '$key'");
+                $log->trace("value  = '$value'");
             }
 
-            $devices->{$current_device}->set($key => $value);
+            $current_device->set($key => $value);
         }
         else
         {
@@ -426,10 +439,8 @@ sub load_devices {
         }
     }
 
-    delete $devices->{default};
-
     close(DEVICES);
-    return wantarray ? %$devices : $devices;
+    return wantarray ? @$devices : $devices;
 }
 
 ########################################
@@ -502,10 +513,10 @@ sub autoconfig {
         return "No devices passed to autoconfig.";
     }
     
-    if (not ref ($devices) eq "HASH")
+    if (not ref ($devices) eq "ARRAY")
     {
-        $log->warn("Devices were not passed as a hash ref.");
-        return "Devices were not passed as a hash ref.";
+        $log->warn("Devices were not passed as an array ref.");
+        return "Devices were not passed as an array ref.";
     }
 
     if (not $template)
@@ -514,9 +525,8 @@ sub autoconfig {
         return "No template passed to autoconfig.";
     }
 
-    foreach my $device_key (keys %$devices)
+    foreach my $device ( @$devices )
     {
-        my $device       = $devices->{$device_key};
         my $child_pid;   # PID of the child process (if used)
 
         if ($log->is_trace)
@@ -581,7 +591,7 @@ sub autoconfig {
 
         if ($failed_ping_test)
         {
-            my $hostname = $device->hostname || $device_key;
+            my $hostname = $device->hostname || "";
             $log->warn("$hostname was not reachable via ping.  Aborting configuration attempt.");
             if ($self->bulk_mode)
             {
@@ -869,10 +879,12 @@ you want, but only the following ones will have an effect.
 
 =item load_devices("filename")
 
-Return a hash ref of all of the devices in the
+Return an array ref of all of the devices in the
 specified file.  The file needs to be in colon format.  You can specify
 any key => value pair that you want.  There are some predefined ones,
 but you can safely ignore those if you want.
+
+B<Note:> Versions prior to 1.12 returned a hash ref.
 
 See the documenation on B<Net::Autoconfig::Device> for information
 regarding the fileformat.
@@ -892,11 +904,13 @@ regarding the fileformat.
 
 =item autoconfig($devices, $template)
 
-Takes a hash of devices and a Net::Autoconfig::Template object.  It
+Takes an array ref of devices and a Net::Autoconfig::Template object.  It
 will try to configure a general per-class-type set of commands first
 and then a set of commands specific to that device.  Any combination
 of command sets are permissable.  It will send a notification if
 any commands fail for a paticular device.
+
+B<Note:> Prior to version 1.12, $devices was a hash ref
 
 =item bulk_mode(TRUE/FALSE/undef)
 

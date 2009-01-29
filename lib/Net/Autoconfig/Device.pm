@@ -10,8 +10,7 @@ use Net::SNMP;
 use Expect;
 use Net::Ping;
 use Data::Dumper;
-
-our $VERSION = '1.02';
+use version; our $VERSION = version->new('v1.3.2');
 
 #################################################################################
 ## Constants and Global Variables
@@ -355,7 +354,8 @@ sub auto_discover {
             $log->warn("Unable to load module: $device_type");
             return;
         }
-        return $device_type->new( $self->get() );
+        $self = $device_type->new( $self->get() );
+        return $self;
     }
     else
     {
@@ -427,19 +427,19 @@ sub set {
 sub model {
     my $self = shift;
     my $model = shift;
-    defined $model and $self->{'model'} = scalar $model;
-    return defined $model ? undef : $self->{'model'};
+    defined $model and $self->{'model'} = $model;
+    return defined $model ? [] : $self->{'model'};
 }
 sub vendor {
     my $self = shift;
     my $vendor = shift;
-    defined $vendor and $self->{'vendor'} = scalar $vendor;
+    defined $vendor and $self->{'vendor'} = $vendor;
     return defined $vendor ? undef : $self->{'vendor'};
 }
 sub hostname {
     my $self = shift;
     my $hostname = shift;
-    defined $hostname and $self->{'hostname'} = scalar $hostname;
+    defined $hostname and $self->{'hostname'} = $hostname;
     return defined $hostname ? undef : $self->{'hostname'};
 }
 sub username {
@@ -485,6 +485,15 @@ sub enable_password {
     return defined $enable_password ? undef : $self->{'enable_password'};
 }
 sub snmp_community {
+    my $self = shift;
+    my $snmp_community = shift;
+    defined $snmp_community and $self->{'snmp_community'} = scalar $snmp_community;
+    return defined $snmp_community ? undef : $self->{'snmp_community'};
+}
+# The same things as snmp_community, but easier to type
+# I.e. I didn't use snmp_community in some other code and this
+# was easer to change than the other code.
+sub community {
     my $self = shift;
     my $snmp_community = shift;
     defined $snmp_community and $self->{'snmp_community'} = scalar $snmp_community;
@@ -723,6 +732,7 @@ sub connect {
     # accept the ssh key
     # send the username
     # send the password
+    # hp->bypass initial login screen
     # verify connection (exec or priv exec mode)
     ####################
     push(@expect_commands, [
@@ -736,22 +746,23 @@ sub connect {
                     ]);
     # Handle some HP weirdness
     push(@expect_commands, [
+                            eval $expect_username_cmd,
+                            eval $expect_password_cmd,
                             # Get past the initial login banner
                             eval $expect_hp_continue_cmd,
-
-                            eval $expect_username_cmd,
-                            eval $expect_password_cmd,
-                            eval $expect_exec_mode_cmd,
-                            eval $expect_priv_mode_cmd,
-                    ]);
-    push(@expect_commands, [
-                            eval $expect_username_cmd,
-                            eval $expect_password_cmd,
                             eval $expect_exec_mode_cmd,
                             eval $expect_priv_mode_cmd,
                     ]);
     push(@expect_commands, [
                             eval $expect_password_cmd,
+                            # Get past the initial login banner
+                            eval $expect_hp_continue_cmd,
+                            eval $expect_exec_mode_cmd,
+                            eval $expect_priv_mode_cmd,
+                    ]);
+    push(@expect_commands, [
+                            # Get past the initial login banner
+                            eval $expect_hp_continue_cmd,
                             eval $expect_exec_mode_cmd,
                             eval $expect_priv_mode_cmd,
                     ]);
@@ -1393,9 +1404,18 @@ sub snmp_get_description {
     # sysDescr.0
     $snmp_oid = '.1.3.6.1.2.1.1.1.0';
 
-    $snmp_result = $snmp->get_request(
-                        -varbindlist    =>  [ $snmp_oid ],
-                        );
+    eval
+    {
+        $snmp_result = $snmp->get_request(
+                             -varbindlist    =>  [ $snmp_oid ],
+                             );
+    };
+    if ($@)
+    {
+        $log->warn($self->hostname . " - Error getting snmp info.");
+        $log->warn($self->hostname . " - $@");
+        undef $snmp_result;
+    }
 
     if ($snmp_result)
     {
@@ -1811,6 +1831,8 @@ sub _get_vendor_from_string {
     my $vendors        = VENDORS_REGEX;      # a hash ref of regex => vendors
     my $device_model;  # a string that links to the module for that device type
     my $log            = Log::Log4perl->get_logger("Net::Autoconfig");
+
+    (defined $string) or $string = "";
 
     foreach my $regex (keys %$vendors)
     {
