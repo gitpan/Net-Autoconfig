@@ -6,7 +6,7 @@
 # change 'tests => 1' to 'tests => last_test_to_print';
 
 use strict;
-use Test::More tests => 138;
+use Test::More tests => 139;
 BEGIN { use_ok('Net::Autoconfig::Device') };
 
 #########################
@@ -68,6 +68,7 @@ can_ok( 'Net::Autoconfig::Device',
         'invalid_cmd_regex',
         'paging_disabled',
         'replace_command_variables',
+        '_eval',
         @methods,
         );
 
@@ -198,3 +199,10 @@ is( $device->replace_command_variables( $cmd ), undef, "Invalid, but not require
 $cmd->{required} = 1;
 ok( $device->replace_command_variables( $cmd ), "Invalid variables passed, this should return an error message");
 
+####################
+# private _eval function
+####################
+
+my $eval_string = '[ "a", "b", "c"]';
+
+is_deeply( Net::Autoconfig::Device::_eval($eval_string, undef), [ "a", "b", "c"], "Error in private _eval function.  Did not return the correct result.");

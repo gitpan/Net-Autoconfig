@@ -10,7 +10,7 @@ use Net::Autoconfig::Template;
 use Data::Dumper;
 use POSIX ":sys_wait_h";
 use Cwd;
-use version; our $VERSION = version->new("v1.12.2");
+use version; our $VERSION = version->new("v1.13.2");
 
 ################################################################################
 # Constants and Global Variables
@@ -23,13 +23,24 @@ use constant MAXIMUM_MAX_CHILDREN => 256; # Absolute Maximum # of child processe
 use constant DEFAULT_MAX_CHILDREN => 64;  # Default max # of child processes (if using bulk mode)
 use constant MINIMUM_MAX_CHILDREN => 1;   # Absolute Minimum # of child processes (if using bulk mode)
 
-use constant DEFAULT_LOGFILE      => 'logging.conf';
+use constant DEFAULT_DIR          => '/usr/local/etc/autoconfig';
+use constant DEFAULT_LOGFILE      => DEFAULT_DIR . '/logging.conf';
 
 use constant MAXIMUM_LOG_LEVEL    => 5;   # Absolute Maximum log level
 use constant DEFAULT_LOG_LEVEL    => 3;   # Set the default log level to info
 use constant MINIMUM_LOG_LEVEL    => 0;   # Absolute Minimum log level
 
 use constant DEFAULT_BULK_MODE    => TRUE; # Enable parallel processing by default
+
+####################
+# Friendly User Prompt Messages
+####################
+use constant USER_PROMPTS => {
+    'password'          =>  "Device Access Password",
+    'enable_password'   =>  "Device Admin  Password",
+    'console_password'  =>  "Console Server Access Password",
+};
+
 
 # A hash ref to store child processes.
 # Contains active processes, and return values
@@ -73,7 +84,7 @@ $SIG{'CHLD'} = sub { $ZOMBIES++ };
 sub new {
 	my $invocant  = shift; # calling class	
 	my $class     = ref($invocant) || $invocant;
-	my $log       = Log::Log4perl->get_logger("Net::Autoconfig");
+	my $log       = Log::Log4perl->get_logger($class);
     my %user_data = @_;
 
 	my $self = {
@@ -151,7 +162,7 @@ sub init_logging {
 sub bulk_mode {
     my $self = shift;
     my $mode = shift;
-    my $log  = Log::Log4perl->get_logger("Net::Autoconfig");
+    my $log  = Log::Log4perl->get_logger( ref($self) );
 
     if (defined $mode)
     {
@@ -175,7 +186,7 @@ sub bulk_mode {
 sub log_level {
     my $self  = shift;
     my $level = shift;
-    my $log   = Log::Log4perl->get_logger("Net::Autoconfig");
+    my $log   = Log::Log4perl->get_logger( ref($self) );
     
     if (defined $level)
     {
@@ -211,7 +222,7 @@ sub log_level {
 sub max_children {
     my $self         = shift;
     my $max_children = shift;
-    my $log          = Log::Log4perl->get_logger("Net::Autoconfig");
+    my $log          = Log::Log4perl->get_logger( ref($self) );
 
     if (defined $max_children)
     {
@@ -326,9 +337,9 @@ sub logfile {
 #
 # This method looks at a device config
 # file and returns
-# a hash ref of Net::Autoconfig::Device's.
-# Where the key = hostname
-# E.g. { hostname => Net::Autoconfig::Device }
+# an array ref of Net::Autoconfig::Device's.
+# Devices are returned in the same order as
+# in the device file.
 #
 # Returns:
 # array context     =>  an array of Devices
@@ -338,7 +349,7 @@ sub logfile {
 sub load_devices {
     my $self = shift;
     my $filename = shift;
-    my $log      = Log::Log4perl->get_logger("Net::Autoconfig");
+    my $log      = Log::Log4perl->get_logger( ref($self) );
     my $devices  = [];    # an array ref of Net::Autoconfig::Devices, key = hostname
     my $file_format;      # indicates if the file is a hash of arrays, or as hash of hashes of arrays
     my $file_hash_depth;  # an integer of the number of levels of hashes in the device file
@@ -431,6 +442,23 @@ sub load_devices {
                 $log->trace("value  = '$value'");
             }
 
+            if ($value =~ /\<prompt\>/i)
+            {
+                my $user_prompts = USER_PROMPTS;
+                my $hostname     = $current_device->hostname;
+                my $message      = $user_prompts->{$key};
+                if (not $message)
+                {
+                    $message = $key;
+                }
+                if ($hostname eq $default_device->hostname)
+                {
+                    $hostname = "Default";
+                }
+                $message = "[$hostname] - $message";
+                $value = &_get_password($message);
+            }
+
             $current_device->set($key => $value);
         }
         else
@@ -448,27 +476,31 @@ sub load_devices {
 # public method
 #
 # Load a configuration template from disk.
-# These files use the colon-operator format.
+# These files use the colon file format.
 # See documentation for more details.
 #
-# Returns:
-#   array context   =>  a hash of the different hosts/devices types
-#   scalar context  =>  a hash ref of the different hosts/devices types
-#   failure         => undef
+# Returns
+#   success =>  a hash ref of the different hosts/devices types
+#   failure =>  undef
 ########################################
 sub load_template {
-    my $self = shift;
+    my $self     = shift;
     my $filename = shift;
-    my $log = Log::Log4perl->get_logger('Net::Autoconfig');
+    my $log      = Log::Log4perl->get_logger( ref($self) );
     my $template;
     $filename or $filename = "";
-    $filename = join("/", getcwd(), $filename);
+
+    # Check for abs path
+    if ( $filename !~ /^\// )
+    {
+        $filename = join("/", getcwd(), $filename);
+    }
 
     (&_file_not_usable($filename, "template file")) and return;
 
     $template = Net::Autoconfig::Template->new($filename);
 
-    return wantarray ? %{ $template } : $template;
+    return $template;
 }
 
 ########################################
@@ -499,7 +531,7 @@ sub autoconfig {
     my $devices = shift;
     my $template = shift;
     my $failed_ping_test;   # results from doing the ping test on the device
-    my $log = Log::Log4perl->get_logger("Net::Autoconfig");
+    my $log = Log::Log4perl->get_logger( ref($self) );
 
     if (ref($self) !~ /Net::Autoconfig/)
     {
@@ -609,6 +641,8 @@ sub autoconfig {
         $device->get_admin_rights();
         $device->disable_paging();
 
+        $device->provision and $device->lookup_model;
+
         # Do the generic, device model/type template first
         # device->model returns an array ref, a device can match more
         # than one device type.  Take the first one that exists in the template.
@@ -667,6 +701,49 @@ sub autoconfig {
 ############################################################
 # Private Methods
 ############################################################
+#
+########################################
+# _get_password
+# private function
+#
+# Get a password from the user.
+# I.e. prevent local echoing of their
+# password.
+########################################
+sub _get_password {
+    my $prompt     = shift;
+    my $log        = Log::Log4perl->get_logger( __PACKAGE__ );
+    my $message    = "";
+    my $user_input = "";
+
+    if (not $prompt)
+    {
+        $log->debug("get_password - Prompt not specified");
+        $prompt = "(Not Specified)";
+    }
+
+    $message = "[User Input] - $prompt: ";
+
+    $log->trace("get_password - Message = '$message'");
+    print $message;
+
+    # Hide user input
+    # This only works on linux/unix machines.
+    $log->trace("get_password - hiding user text input");
+    system("stty -echo");
+
+    $user_input = <STDIN>;
+    chomp($user_input);
+    $log->trace("get_password - password = '$user_input'");
+
+    # Show user input again.
+    $log->trace("get_password - showing user text input");
+    system("stty echo");
+    print "\n";
+
+    return $user_input;
+}
+
 
 ########################################
 # _file_not_usable
@@ -682,10 +759,10 @@ sub autoconfig {
 # Return TRUE if it's not
 ########################################
 sub _file_not_usable {
-    my $filename = shift;
+    my $filename     = shift;
     my $file_descrip = shift;
     my $working_dir  = getcwd();
-    my $log = Log::Log4perl->get_logger("Net::Autoconfig");
+    my $log          = Log::Log4perl->get_logger( __PACKAGE__ );
     $file_descrip = $file_descrip || "";
 
     if (! $filename)
@@ -733,7 +810,7 @@ sub _failed_ping_test {
 ##############################
 sub _reaper {
     my $zombie;
-    my $log = Log::Log4perl->get_logger("Net::Autoconfig");
+    my $log = Log::Log4perl->get_logger( __PACKAGE__ );
 
     $log->trace("Start reaping zombies.");
     $log->trace("Number of zombies        : $ZOMBIES");
@@ -877,12 +954,20 @@ you want, but only the following ones will have an effect.
  log_level
  max_children
 
+=item init_logging()
+
+Initialize logging for the module.  Right now, it loads
+the default config file.
+
 =item load_devices("filename")
 
 Return an array ref of all of the devices in the
 specified file.  The file needs to be in colon format.  You can specify
 any key => value pair that you want.  There are some predefined ones,
 but you can safely ignore those if you want.
+
+Devices are returned in the same order as they appear in the
+device configuration file.
 
 B<Note:> Versions prior to 1.12 returned a hash ref.
 
@@ -901,6 +986,8 @@ own defaults.
 
 See the documenation on B<Net::Autoconfig::Template> for information
 regarding the fileformat.
+
+Returns a Net::Autoconfig::Template device.
 
 =item autoconfig($devices, $template)
 
@@ -922,7 +1009,7 @@ bulk_mode status if passed nothing (i.e. undef).
 
 =item max_children($value/undef)
 
-Max_children is 128 by default.
+Max_children is 64 by default.
 
 If passed undef, it returns the current maximum number of
 simultaneous processes to run if bulk_mode is enabled.
@@ -931,9 +1018,19 @@ to that value.  The absolute maximum number of child processes
 is 256.  If that is too few, you can modify that value in the
 module.
 
+=item logfile($filename/undef)
+
+Access/Mutator method.
+
+Sets the location of the logfile if passed the filename.
+
+Returns the location of the logfile if passed undef.
+
 =item log_level($level/undef)
 
-This value has no effect on the operation of this module.
+*Note: This value currently has no effect on the operation
+of this module.
+
 Set the log level using the logging.conf file.
 
 If passed a value, it will set the log level to that value.

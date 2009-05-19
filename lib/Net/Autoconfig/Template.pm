@@ -7,7 +7,7 @@ use warnings;
 use base "Net::Autoconfig";
 use Log::Log4perl qw(:levels);
 use Data::Dumper;
-use version; our $VERSION = version->new('v1.1.1');
+use version; our $VERSION = version->new('v1.1.3');
 
 #################################################################################
 ## Constants and Global Variables
@@ -95,9 +95,9 @@ sub new {
 #   failure         => undef
 ########################################
 sub _get_template_data {
-    my $filename = shift;
+    my $filename      = shift;
     my $template_data = {};
-    my $log = Log::Log4perl->get_logger("Net::Autoconfig");
+    my $log           = Log::Log4perl->get_logger("Net::Autoconfig");
     my $current_device;      # the name of the current device
     my $set_defaults_flag;   # set if we've seen a "default" directive
     my $skip_push_cmd;       # flag indicates if we shouldn't push this to the list of commands
@@ -120,6 +120,10 @@ sub _get_template_data {
     {
         my $cmds;     # the command or the directives + commands
         $log->trace("Template line: $line");
+
+        # Only skip the line if the first character is a "#".
+        # Someone may want to send a " #..." cmd.
+        # Probably not, but you never know.
         next if $line =~ /^#/;
         $cmds = _get_template_directives($line);
 
@@ -139,7 +143,7 @@ sub _get_template_data {
                 $template_data->{$current_device}->{hostname} = $current_device;
                 delete $cmds->{$hostname};
                 $skip_push_cmd = TRUE;   # If this exists, then don't push this onto the cmd list/stack
-                $log->debug("Setting hostname to '$current_device'");
+                $log->debug("Now using template named '$current_device'");
             }
         }
         if ( $cmds->{end} )
@@ -212,8 +216,31 @@ sub _get_template_data {
                 $cmds = { %{$template_data->{default}}, %$cmds };
             }
 
-            $log->trace("Adding commands to $current_device: " . Dumper($cmds));
-            push(@$cmds_array, $cmds);
+            # Check to see if someone wanted to copy another template
+            # into this one.  I.e. this is useful for entering the same
+            # commands on different devices.  E.g. c2960 and c2960g can
+            # use the same commands.
+            #
+            # Procedure: 1) Copy the data into a new hash
+            #            2) Point the current device template to the new data
+            # Notes:
+            #       a) This prevents a change in 1 affecting both of them.
+            #       b) This allows for extra commands to be added to the current device
+            #          without affecting the other device.
+            if ($cmds->{cmd} =~ /^<same_as\s+(.*)>/i)
+            {
+                my $other_device = lc $1;   # The other template to copy into this one
+                my %other_template = %{ $template_data->{$other_device} };
+
+                $template_data->{$current_device} = \%other_template;
+
+                $log->trace("Duplicating template '$other_device' to '$current_device'");
+            }
+            else
+            {
+                $log->trace("Adding commands to $current_device: " . Dumper($cmds));
+                push(@$cmds_array, $cmds);
+            }
         }
         else
         {
@@ -253,6 +280,11 @@ sub _get_template_data {
 # colon separated fields and return a hash
 # of the applicable directives
 #
+# Force all directives to lowercase to prevent
+# typos or having to remember capitilization.
+#
+# Preserve case on commands.
+#
 # Returns:
 #   array context   =>  hash of the commands
 #   scalar context  =>  hash ref of the commands
@@ -272,6 +304,7 @@ sub _get_template_directives {
         $line =~ s/^://;
         $line =~ s/:$//;
         $line =~ s/\\:/~!~/g;
+        $line =  lc $line;
 
         @line_directives = split(":", $line);
 
@@ -311,7 +344,7 @@ sub _get_template_directives {
             }
             else
             {
-                &_add_directive($line_directives[$elem_count], $cmds);
+                &_add_directive(lc $line_directives[$elem_count], $cmds);
             }
         }
     }

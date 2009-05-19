@@ -6,7 +6,7 @@
 # change 'tests => 1' to 'tests => last_test_to_print';
 
 use strict;
-use Test::More tests => 46;
+use Test::More tests => 45;
 #use Cwd;
 BEGIN { use_ok('Net::Autoconfig') };
 
@@ -19,7 +19,7 @@ use constant DEFAULT_MAX_CHILDREN => 64;
 use constant MAXIMUM_MAX_CHILDREN => 256;
 use constant MINIMUM_MAX_CHILDREN => 1;
 
-use constant DEFAULT_LOGFILE      => 'logging.conf';
+use constant DEFAULT_LOGFILE      => '/usr/local/etc/autoconfig/logging.conf';
 
 use constant MAX_LOG_LEVEL        => 5;
 use constant DEFAULT_LOG_LEVEL    => 3;
@@ -37,6 +37,7 @@ use constant DEFAULT_BULK_MODE    => TRUE;
 # Test all public methods
 my @public_methods = qw(    new bulk_mode log_level max_children load_devices
                             load_template autoconfig get_report logfile init_logging
+                            _get_password
                             );
 can_ok("Net::Autoconfig", @public_methods);
 
@@ -140,9 +141,7 @@ is($autoconf->load_template(), undef, "Testing null filename test case for load 
 is(ref($autoconf->load_template("t/template.cfg")), 'Net::Autoconfig::Template', "Testing valid filename for load template.");
 
 $template = $autoconf->load_template("t/template.cfg");
-%template = $autoconf->load_template("t/template.cfg");
 is(ref($template), "Net::Autoconfig::Template", "Testing scalar context for load_template");
-is(ref(%template), "", "Testing array ontext of load_template");
 
 ########################################
 # Testing autoconfig
@@ -164,4 +163,3 @@ ok($autoconf->get_report, "Testing for some sort of output from get_report");
 	is(ref(@temp), '', "Testing for array context output from get_report");
 	is(ref($temp), 'HASH', "Testing for scalar context output from get_report");
 }
-

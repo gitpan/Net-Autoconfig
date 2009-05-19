@@ -10,7 +10,7 @@ use Net::SNMP;
 use Expect;
 use Net::Ping;
 use Data::Dumper;
-use version; our $VERSION = version->new('v1.3.2');
+use version; our $VERSION = version->new('v1.4.6');
 
 #################################################################################
 ## Constants and Global Variables
@@ -55,9 +55,14 @@ use constant SPECIFIC_DEVICE_MODEL_REGEX => {
     hub224        =>    'J2603A/B',
     hub48         =>    'J2603A ',
     c3550         =>    'C3550',
-    c3560         =>    'C3560',
-    c3750         =>    'C3750',
-    c2960         =>    'C2960',
+    c3560         =>    'C3560-',
+    c3560g        =>    'C3560G-',
+    c3560e        =>    'C3560E-',
+    c3750         =>    'C3750-',
+    c3750g        =>    'C3750G-',
+    c3750e        =>    'C3750E-',
+    c2960         =>    'C2960-',
+    c2960g        =>    'C2960G-',
 };
 
 use constant GENERIC_DEVICE_MODEL_REGEX => {
@@ -130,8 +135,22 @@ use constant VENDORS_REGEX => {
 # This incurs a performance hit, but I think its
 # worth it.
 #
-# Yay!
+# Define package variables for the variables.
+# Do this for the following reasons:
+# 1) I want to use a separate eval function to do some
+#    error checking.
+# 2) Eval'ing the statements is useless without the
+#    correct variable references.
+# 3) If a global (our) variable is locally scoped (local),
+#    if the eval func. is called from that block, then
+#    it will have the right values.  However, all other
+#    methods/functions will have the global value.
+# 4) Maybe I should change the way I eval these things.
+#
 ####################
+
+our $connected_to_device;
+our $command_failed;
 
 my $expect_show_version_cmd = '[
                             -re => "#",
@@ -139,6 +158,7 @@ my $expect_show_version_cmd = '[
                             {
                                 $session->clear_accum();
                                 $session->send("show version\n");
+                                $log->trace($self->hostname . " - Expect CMD -  Show Version");
                                 sleep(1);
                             }
                         ]';
@@ -146,8 +166,10 @@ my $expect_ssh_key_cmd   = '[
                             -re => "continue connecting",
                             sub
                             {
+                                $log->trace($self->hostname . " - Expect Cmd - SSH unknown key command.");
                                 $session->clear_accum();
-                                $session->send("yes\n"); sleep(1);
+                                $session->send("yes\n");
+                                sleep(1);
                             }
                         ]';
 my $expect_username_cmd  = '[
@@ -156,15 +178,29 @@ my $expect_username_cmd  = '[
                             {
                                 $session->clear_accum();
                                 $session->send($self->username . "\n");
+                                $log->trace($self->hostname . " - Expect CMD - Sending device username");
                                 sleep(1);
                             }
                         ]';
 my $expect_password_cmd = '[
-                            -re => "word[.:.]",
+                            -re => "word:",
                             sub
                             {
                                 $session->clear_accum();
                                 $session->send($self->password . "\n");
+                                $log->trace($self->hostname . " - Expect CMD - Sending device password");
+                                sleep(1);
+                            }
+                        ]';
+# Expect console login cmd.  Make sure we're using the correct 
+# password.
+my $expect_console_login_cmd = '[
+                            -re => "word:",
+                            sub
+                            {
+                                $log->trace($self->hostname . " - Expect Cmd - Sending console password.");
+                                $session->clear_accum();
+                                $session->send($self->console_password . "\n");
                                 sleep(1);
                             }
                         ]';
@@ -174,25 +210,43 @@ my $expect_hp_continue_cmd = '[
                             {
                                 $session->clear_accum();
                                 $session->send("\n");
+                                $log->trace($self->hostname . " - Expect CMD - Sending HP continue command");
                                 sleep(1);
                             }
                         ]';
+# Find the prompt, and preserve the accumulator
 my $expect_exec_mode_cmd = '[
                             -re => ">",
                             sub
                             {
-                                $session->clear_accum();
-                                $session->send("\n");
+                                my $accumulated;
+                                $accumulated = $session->clear_accum();
+                                $session->set_accum( $session->before.
+                                                     $session->match.
+                                                     $session->after.
+                                                     $accumulated
+                                                     );
+                                #$session->send("\n");
+                                $log->trace($self->hostname . " - Expect CMD - Got device exec mode");
                                 sleep(1);
                                 $connected_to_device = TRUE;
                             }
                         ]';
+# Find the prompt, and preserve the accumulator
 my $expect_priv_mode_cmd = '[
                             -re => "#",
                             sub
                             {
-                                $session->clear_accum();
-                                $session->send("\n");
+                                my $accumulated;
+                                $accumulated = $session->clear_accum();
+                                $session->set_accum( $session->before.
+                                                     $session->match.
+                                                     $session->after.
+                                                     $accumulated
+                                                     );
+                                #$session->clear_accum();
+                                #$session->send("\n");
+                                $log->trace($self->hostname . " - Expect CMD - Got device admin mode");
                                 sleep(1);
                                 $self->admin_status(TRUE);
                                 $connected_to_device = TRUE;
@@ -204,6 +258,7 @@ my $expect_enable_cmd = '[
                             {
                                 $session->clear_accum();
                                 $session->send("enable\n");
+                                $log->trace($self->hostname . " - Expect CMD - Sending device enable command");
                                 sleep(1);
                             }
                         ]';
@@ -213,30 +268,52 @@ my $expect_enable_passwd_cmd = '[
                             {
                                 $session->clear_accum();
                                 $session->send($self->enable_password . "\n");
+                                $log->trace($self->hostname . " - Expect CMD - Sending device enable password");
                                 sleep(1);
                             }
                         ]';
-my $expect_already_enabled_cmd = '[
-                            -re => "#",
-                            sub
-                            {
-                                $session->clear_accum();
-                                $session->send("\n");
-                                sleep(1);
-                                $already_enabled = TRUE;
-                            }
-                        ]';
+#my $expect_already_enabled_cmd = '[
+#                            -re => "#",
+#                            sub
+#                            {
+#                                $session->clear_accum();
+#                                $session->send("\n");
+#                                sleep(1);
+#                                $already_enabled = TRUE;
+#                            }
+#                        ]';
 my $expect_initial_console_prompt_cmd = '[
                             -re => "how and erase",
                             sub
                             {
-                                sleep(3);
+                                $log->trace($self->hostname . " - Expect Cmd - Initial Console Prompt (Buffered) Command.");
                                 $session->clear_accum();
+                                sleep(3);
                                 $session->send("I\n");
                                 sleep(1);
-                                $expect->send("\r\n\r\n");
+                                $session->send("\r\n\r\n");
                                 sleep(1);
-                                $expect->send("\n");
+                                $log->debug($self->hostname , " - Connected via inital console prompt cmd");
+                                $connected_to_device = TRUE;
+                            }
+                        ]';
+
+# Match and don't destroy the accumulated data.
+my $expect_get_priv_console_output = '[
+                            -re => "#",
+                            sub
+                            {
+                                #$session->clear_accum();
+                                #$session->send("\n");
+                                my $accumulated;
+                                $accumulated = $session->clear_accum();
+                                $session->set_accum( $session->before.
+                                                     $session->match.
+                                                     $session->after.
+                                                     $accumulated,
+                                                     );
+                                $log->trace($self->hostname " - Expect CMD - Got admin console output");
+                                sleep(1);
                             }
                         ]';
 # Compromise - set the length to 512
@@ -248,12 +325,26 @@ my $expect_disable_paging_cmd = '[
                             {
                                 $session->clear_accum();
                                 $session->send("terminal length 512\n");
+                                $log->trace($self->hostname . " - Expect CMD - Disabling paging");
+                                sleep(1);
+                            }
+                        ]';
+my $expect_initial_config_dialog = '[
+                            -re => "initial configuration",
+                            sub
+                            {
+                                $session->clear_accum();
+                                $session->send("no\n");
+                                $log->trace($self->hostname . " - Expect CMD - Bypassing initial config dialog");
+                                sleep(1);
                             }
                         ]';
 my $expect_timeout_cmd = '[
                     timeout =>
                         sub
                         {
+                            $session->clear_accum();
+                            $log->info($self->hostname . " - Expect CMD - Timeout");
                             $command_failed = TRUE;
                         }
                     ]';
@@ -279,6 +370,19 @@ my $expect_timeout_cmd = '[
 #
 # Returns:
 #   A Net::Autoconfig::Device object
+#
+# Publis variable descriptions
+#   See the POD below
+# Private/Internal Variables
+#   session
+#       - Expect ref or undef
+#       - contains a ref to the expect session
+#   connected
+#       - TRUE or FALSE
+#       - indicates if a successful connection was made
+#   admin_rights_status
+#       - TRUE or FALSE
+#       - Indicates if admin rights have been established
 ########################################
 sub new {
     my $invocant = shift; # calling class
@@ -291,10 +395,13 @@ sub new {
                     admin_rights_status =>    FALSE,
                     console_username    =>    "",
                     console_password    =>    "",
+                    console_hostane     =>    "",
+                    console_tty         =>    "",
                     username            =>    "",
                     password            =>    "",
                     enable_password     =>    "",
                     session             =>    undef,
+                    connected           =>    FALSE,
                     snmp_community      =>    "",
                     snmp_version        =>    DEFAULT_SNMP_VERSION,
                     access_method       =>    DEFAULT_ACCESS_METHOD,
@@ -302,15 +409,43 @@ sub new {
                     invalid_cmd_regex   =>    DEFAULT_INVALID_CMD_REGEX,
                     @_,
                     };
-    my $log      = Log::Log4perl->get_logger('Net::Autoconfig');
+    my $log      = Log::Log4perl->get_logger($class);
+    my $hostname;
     bless $self, $class;
+
+    $log->debug("Creating new device object");
+
+    $hostname = $self->hostname;
 
     if ($log->is_trace())
     {
         $log->trace(Dumper($self));
     }
 
-    $log->debug("Creating new device object");
+    # Check to see if it's using a console server
+    if ($self->hostname =~ /(.*)\@(.*)/)
+    {
+        $log->debug("$hostname - Setting Provision mode");
+        $log->debug("$hostname - using console server $2, tty/line $1");
+        $self->provision(TRUE);
+        $self->set('auto_discover', FALSE);
+        $self->console_hostname($2);
+        $self->console_tty($1);
+
+        if ( not $self->console_username )
+        {
+            $log->info("$hostname - Console username not set, using access username.");
+            $self->console_username($self->username);
+            $log->trace("$hostname - console username = " . $self->console_username);
+        }
+
+        if ( not $self->console_password)
+        {
+            $log->info("$hostname - Console password not set, using access password.");
+            $self->console_password($self->password);
+        }
+    }
+
     return $self->get('auto_discover') ? $self->auto_discover : $self;
 }
 
@@ -329,16 +464,16 @@ sub auto_discover {
     my $snmp_community = $self->snmp_community || "";
     my $snmp_version   = $self->snmp_version   || "2c";
     my $session        = $self->session        || "";
-    my $log            = Log::Log4perl->get_logger("Net::Autoconfig");
+    my $log            = Log::Log4perl->get_logger( ref($self) );
     my $device_type;   # The name of the module for that device.
 
-    $log->debug("Auto-discovering device.");
+    $log->debug($self->hostname . " - auto-discovering device.");
 
     $device_type = $self->lookup_model();
 
     if (not $device_type)
     {
-        $log->info("Using default device class for " . $self->hostname);
+        $log->info($self->hostname . " - using default device class");
     }
 
     # Unset "auto_discover" so it doesn't try to recurse to infinity
@@ -351,16 +486,14 @@ sub auto_discover {
         eval "require $device_type;";
         if ($@)
         {
-            $log->warn("Unable to load module: $device_type");
+            $log->warn($self->hostname
+                    . " - Failed - unable to load module: $device_type");
             return;
         }
         $self = $device_type->new( $self->get() );
-        return $self;
     }
-    else
-    {
-        return $self;
-    }
+
+    return $self;
 }
 
 
@@ -409,7 +542,16 @@ sub get {
 sub set {
     my $self = shift;
     my %attribs = @_;
-    my $log = Log::Log4perl->get_logger(ref($self));
+    my $log = Log::Log4perl->get_logger( ref($self) );
+
+    if ($self->hostname)
+    {
+        $log->trace($self->hostname . " - setting attribute(s)");
+    }
+    else
+    {
+        $log->trace("hostname not defined - setting attribute(s)");
+    }
 
     foreach my $key ( keys %attribs )
     {
@@ -478,6 +620,19 @@ sub console_password {
     defined $console_password and $self->{'console_password'} = scalar $console_password;
     return defined $console_password ? undef : $self->{'console_password'};
 }
+sub console_hostname {
+    my $self = shift;
+    my $console_hostname = shift;
+    defined $console_hostname and $self->{'console_hostname'} = scalar $console_hostname;
+    return defined $console_hostname ? undef : $self->{'console_hostname'};
+}
+sub console_tty {
+    my $self = shift;
+    my $console_tty = shift;
+    defined $console_tty and $self->{'console_tty'} = scalar $console_tty;
+    return defined $console_tty ? undef : $self->{'console_tty'};
+}
+###
 sub enable_password {
     my $self = shift;
     my $enable_password = shift;
@@ -568,7 +723,7 @@ sub access_method {
 sub access_cmd {
     my $self = shift;
     my $access_cmd = shift;
-    my $log = Log::Log4perl->get_logger("Net::Autoconfig");
+    my $log = Log::Log4perl->get_logger( ref($self) );
 
     $access_cmd or $access_cmd = "";
 
@@ -638,13 +793,13 @@ sub connect {
     my $result;               # the value returned after executing an expect cmd
     my @expect_commands;      # the commands to run on the device
     my $spawn_cmd;            # command expect uses to connect to the device
-    my $log = Log::Log4perl->get_logger("Net::Autoconfig");
+    my $log = Log::Log4perl->get_logger( ref($self) );
 
-    $log->debug("Using default connect method.");
+    $log->debug($self->hostname . " - using default connect method.");
 
     # Expect success/failure flags
-    my $connected_to_device;      # indicates a successful connection to the device
-    my $command_failed;           # indicates a failed     connection to the device
+    local $connected_to_device;      # indicates a successful connection to the device
+    local $command_failed;           # indicates a failed     connection to the device
 
     # Do some sanity checking
     if (not $self->hostname)
@@ -655,26 +810,27 @@ sub connect {
 
     if (not $self->access_method)
     {
-        $log->warn("Access method for " . $self->hostname . " not defined.");
+        $log->warn($self->hostname . " - access method not defined.");
         return "Access method not defined.";
     } 
     
     if (not $self->access_cmd)
     {
-        $log->warn("Access command for " . $self->hostname . " not defined.");
+        $log->warn($self->hostname . " - access command not defined.");
         return "Access command not defined";
     }
 
     if (not $self->username)
     {
-        $log->warn("No username defined.");
+        $log->warn($self->hostname . " - No username defined.");
         return "No username defined.";
     }
 
     # Setup the access command
     if ($self->access_method =~ /^ssh$/)
     {
-        $spawn_cmd = join(" ", $self->access_cmd, "-l", $self->username, $self->hostname);
+        $spawn_cmd = join(" ", $self->access_cmd,
+                            "-l", $self->username, $self->hostname);
     }
     else
     {
@@ -685,9 +841,11 @@ sub connect {
     $session = $self->session;
     if (&_invalid_session($session))
     {
-        $log->info("Connecting to " . $self->hostname);
-        $log->debug("Using command '" . $self->access_cmd . "'");
-        $log->debug("Spawning new expect session with: '$spawn_cmd'");
+        $log->info($self->hostname . " - initiating connection");
+        $log->debug($self->hostname . " - using command '"
+                    . $self->access_cmd . "'");
+        $log->debug($self->hostname
+                    . " - spawning new expect session with: '$spawn_cmd'");
 
         if (&_host_not_reachable($self->hostname))
         {
@@ -702,13 +860,13 @@ sub connect {
         };
         if ($@)
         {
-            $log->warn("Connecting to " . $self->hostname . " failed: $@");
+            $log->warn($self->hostname . " Failed - connection failed: $@");
             return $@;
         }
     }
     else
     {
-        $log->info("Session for ". $self->hostname . " already exists.");
+        $log->info($self->hostname . " - session already exists.");
     }
 
     # Enable dumping data to the screen.
@@ -739,6 +897,9 @@ sub connect {
                             eval $expect_ssh_key_cmd,
                             eval $expect_username_cmd,
                             eval $expect_password_cmd,
+
+                            # Used for initial configuration of cisco devices
+                            eval $expect_initial_config_dialog,
 
                             # Check to see if we already have access
                             eval $expect_exec_mode_cmd,
@@ -821,13 +982,19 @@ sub console_connect {
     my $result;               # the value returned after executing an expect cmd
     my @expect_commands;      # the commands to run on the device
     my $spawn_cmd;            # command expect uses to connect to the device
-    my $log = Log::Log4perl->get_logger("Net::Autoconfig");
+    my $log = Log::Log4perl->get_logger( ref($self) );
 
     $log->debug("Using default console connect method.");
 
     # Expect success/failure flags
-    my $connected_to_device;      # indicates a successful connection to the device
-    my $command_failed;           # indicates a failed     connection to the device
+    local $connected_to_device;      # indicates a successful connection to the device
+    local $command_failed;           # indicates a failed     connection to the device
+
+#    if ($self->_connected)
+#    {
+#        $log->info($self->hostname . " - connection already established.");
+#        return "Connection already established.";
+#    }
 
     # Do some sanity checking
     if (not $self->hostname)
@@ -838,7 +1005,9 @@ sub console_connect {
 
     if (not $self->provision)
     {
-        $log->warn("Device not configured for provisioning (console server) proceeding anyway.");
+        $log->warn($self->hostname
+                    . "Device not configured for provisioning"
+                    . " (console server) proceeding anyway.");
     }
 
     if (not $self->access_method)
@@ -855,28 +1024,28 @@ sub console_connect {
 
     if (not $self->console_username)
     {
-        $log->warn("No console user defined.");
+        $log->warn("Failed - No console user defined.");
         return "No console user defined.";
     }
 
     if (not $self->username)
     {
-        $log->warn("No normal username defined.");
+        $log->warn("Failed - No normal username defined.");
     }
 
+    $hostname = $self->console_hostname;
     $username = $self->console_username;
-    $self->hostname =~ /(\S*?)\@(\S*)/;
-    $1 and $tty      = $1;
-    $2 and $hostname = $2;
+    $tty      = $self->console_tty;
 
     # this could read (not $tty or not $hostname)
-    if (not $tty or not $hostname)
+    if (not $tty or not $username)
     {
-        $log->warn('Failed - Invalid tty@console hostname.');
+        $log->warn($self->hostname
+                    . ' - Failed - Invalid tty@console hostname.');
         return 'Failed - Invalid tty@console hostname.';
     }
 
-    $username = join(":", $self->console_username, $tty);
+    $username = join(":", $username, $tty);
 
     # Setup the access command
     if ($self->access_method =~ /^ssh$/)
@@ -892,12 +1061,16 @@ sub console_connect {
     $session = $self->session;
     if (&_invalid_session($session))
     {
-        $log->info("Connecting to console " . $hostname);
-        $log->debug("Using command '" . $self->access_cmd . "'");
-        $log->debug("Spawning new expect session with: '$spawn_cmd'");
+        $log->info($self->hostname . " - Connecting to console server.");
+        $log->debug($self->hostname
+                    . " - Using command '" . $self->access_cmd . "'");
+        $log->debug($self->hostname
+                    . " - Spawning new expect session with: '$spawn_cmd'");
 
-        if (&_host_not_reachable)
+        if (&_host_not_reachable($hostname))
         {
+            $log->warn($self->hostname . " - Failed"
+                        . " - '$hostname' not reachable via ping.");
             return "Failed $hostname not reachable via ping.";
         }
 
@@ -909,14 +1082,17 @@ sub console_connect {
         };
         if ($@)
         {
-            $log->warn("Connecting to " . $self->hostname . " failed: $@");
+            $log->warn($self->hostname . " - Failed"
+                        . " - Connecting to $hostname failed: $@");
             return $@;
         }
+        $self->session($session);
     }
     else
     {
-        $log->info("Session for ". $self->hostname . " already exists.");
+        $log->info($self->hostname . " - Session for already exists.");
     }
+
 
     # Enable dumping data to the screen.
     if ($log->is_trace() || $log->is_debug() )
@@ -934,38 +1110,36 @@ sub console_connect {
     # The commands are defined for the class, but they need
     # to be eval'ed before we can use them.
     ####################
-    # Setup the expect commands to do the initial login.
-    # Up to four commands may need to be run:
-    # accept the ssh key
-    # send the username
-    # send the password
-    # verify connection (exec or priv exec mode)
+    # Setup the expect commands to login to the console server.
+    # This method only connects to the server, not the device.
+    # Therefore, if we see the login prompt for the device, preserve
+    # the output so the connect() method sees it too.
+    #
+    # Up to seven things may happen:
+    # 1) send the password
+    # 2) Bypass the "what to do with data buffer" from the console
+    # 3) see and preserve a username prompt
+    # 4) see and preserve a password prompt
+    # 5) see an exec mode prompt
+    # 6) see a  priv mode prompt
+    # 7) bypass HP "continue" screen
     ####################
     push(@expect_commands, [
-                            eval $expect_ssh_key_cmd,
-                            eval $expect_password_cmd,
-                       ]);
-    # Handle some HP weirdness
-    push(@expect_commands, [
-                            eval $expect_password_cmd,
-                            eval $expect_initial_console_prompt_cmd,
+                            _eval($expect_console_login_cmd, $self),
+                            _eval( $expect_ssh_key_cmd, $self),
                        ]);
     push(@expect_commands, [
-                            eval $expect_initial_console_prompt_cmd,
-                            eval $expect_username_cmd,
-                            eval $expect_password_cmd,
-                            eval $expect_exec_mode_cmd,
-                            eval $expect_priv_mode_cmd,
+                            _eval($expect_console_login_cmd, $self),
+                            _eval($expect_initial_console_prompt_cmd, $self),
                        ]);
     push(@expect_commands, [
-                            eval $expect_password_cmd,
-                            eval $expect_exec_mode_cmd,
-                            eval $expect_priv_mode_cmd,
+                            _eval($expect_initial_console_prompt_cmd, $self),
                        ]);
-    push(@expect_commands, [
-                            eval $expect_exec_mode_cmd,
-                            eval $expect_priv_mode_cmd,
-                       ]);
+
+    # There are two cases when connecting to a console server:
+    # 1) the console server has a buffer and you need to clear it
+    # 2) the console server has _no_ buffer and it gives you a blank
+    #    prompt.
 
     foreach my $command (@expect_commands)
     {
@@ -975,18 +1149,58 @@ sub console_connect {
             $log->trace("Expect matching before: " . $session->before);
             $log->trace("Expect matching match : " . $session->match);
             $log->trace("Expect matching after : " . $session->after);
+            $log->trace("Expect command: " . Dumper($command));
         }
         if ($connected_to_device)
         {
-            $log->debug("Connected to device " . $self->hostname);
-            $self->session($session);
+            $log->debug($self->hostname . " - Console Buffered - Connected to device ");
             last;
         }
         elsif ($command_failed)
         {
-            $self->error_end_session("Failed to connect to device " . $self->hostname);
-            $log->debug("Failed on command: " , Dumper($command));
+###            $self->error_end_session("Failed - Unable to connect to device");
+###            $log->debug($self->hostname . " - Failed - on command: "
+###                        . Dumper($command));
+            $log->debug($self->hostname . " - Console Connect Problem - Command timed out");
             last;
+        }
+    }
+
+    # It may not have failed/timed out.  It could have connected and had
+    # an empty buffer.
+    if ($command_failed)
+    {
+        # Check to see if we connected to the device
+        $command_failed = FALSE;
+        my $expect_command = [
+                    _eval($expect_initial_config_dialog, $self),
+                    _eval($expect_exec_mode_cmd, $self),
+                    _eval($expect_priv_mode_cmd, $self),
+                    _eval($expect_username_cmd, $self),
+                    _eval($expect_password_cmd, $self),
+                    _eval($expect_initial_console_prompt_cmd, $self),
+                    ];
+
+        $session->clear_accum();
+        $session->send("\r\n\r\n");
+        sleep(1);
+        $session->expect(   MEDIUM_TIMEOUT,
+                            @$expect_command,
+                            _eval($expect_timeout_cmd, $self)
+                        );
+        if ($command_failed)
+        {
+            $self->error_end_session("Failed - Unable to connect to device");
+        }
+        elsif ($connected_to_device)
+        {
+            $log->debug($self->hostname
+                        . " - Console Not Buffered - Connected to device ");
+            $self->session($session);
+        }
+        else
+        {
+            $log->error($self->hostname . " - Undefined Console State");
         }
     }
 
@@ -1020,7 +1234,7 @@ sub configure {
     my $session;      # the object's expect session
     my $error_cmd;    # expect cmd to see if a cmd was invalid
     my $error_flag;   # indicates if the command was invalid
-    my $log           = Log::Log4perl->get_logger("Net::Autoconfig");
+    my $log           = Log::Log4perl->get_logger( ref($self) );
     my $last_cmd;     # record keeping for error reporting
 
     $log->trace("Using the default configure method!");
@@ -1230,14 +1444,8 @@ sub lookup_model {
 
     if ( $self->hostname)
     {
-        $log->debug("Looking up device info (model/vendor).");
+        $log->debug($self->hostname . "Looking up device info (model/vendor).");
     }
-    #else
-    #{
-    #    $log->info("Unable to deterine device type for "
-    #                . "believed/assumed to be a default device");
-    #    return $class;
-    #}
 
     $self->identify_vendor;
     $self->identify_model;
@@ -1245,11 +1453,12 @@ sub lookup_model {
     if ( $self->vendor )
     {
         $class = join('::', $class, $self->vendor );
-        $log->debug("Found device model: $class");
+        $log->debug($self->hostname . "Found device model: $class");
     }
     else
     {
-        $log->debug("Unable to determine device model.  Using $class.");
+        $log->debug($self->hostname
+                    . "Unable to determine device model.  Using $class.");
     }
 
     return $class;
@@ -1279,7 +1488,7 @@ sub identify_vendor {
 
     if ($self->vendor)
     {
-        $log->debug("Vendor already defined for " . $self->hostname);
+        $log->debug($self->hostname . "Vendor already defined.");
         $vendor = _get_vendor_from_string( $self->vendor );
         if ( not ($self->vendor eq $vendor) )
         {
@@ -1288,20 +1497,19 @@ sub identify_vendor {
         }
         return;
     }
+    elsif ($self->session and $self->provision)
+    {
+        $log->debug($self->hostname . " - Using terminal to determine vendor.");
+        $info = $self->console_get_description;
+    }
     elsif ($self->snmp_community)
     {
         $info = $self->snmp_get_description;
-        $log->debug("Using snmp to determine vendor for " . $self->hostname);
-    }
-    elsif ($self->session)
-    {
-        $info = $self->console_get_description;
-        $log->debug("Using terminal to determine vendor for "
-                    . $self->hostname);
+        $log->debug($self->hostname . "Using snmp to determine vendor.");
     }
     else
     {
-        $log->info("Unable to determine the vendor for " . $self->hostname);
+        $log->info($self->hostname . "Unable to determine the vendor");
         return "Unable to determine the vendor.";
     }
 
@@ -1344,23 +1552,22 @@ sub identify_model {
         $log->debug("Model already defined for " . $self->hostname);
         return;
     }
+    elsif ($self->session and $self->provision)
+    {
+        $log->debug($self->hostname . " - Using terminal to determine model");
+        $info = $self->console_get_description;
+    }
     elsif ($self->snmp_community)
     {
         $info = $self->snmp_get_description;
-        $log->debug("Using snmp to determine model for " . $self->hostname);
-    }
-    elsif ($self->session)
-    {
-        $info = $self->console_get_description;
-        $log->debug("Using terminal to determine model for "
-                    . $self->hostname);
+        $log->debug($self->hostname . " - Using snmp to determine model");
     }
     else
     {
         $log->info("Unable to determine the model for " . $self->hostname);
     }
 
-    $model = _get_model_from_string($info);
+    $model = &_get_model_from_string($info);
 
     if ($model)
     {
@@ -1389,6 +1596,13 @@ sub snmp_get_description {
     my $snmp_oid;    # oid of the attribute to get
     my $snmp_result; # the result of the snmp query
 
+    if ($self->provision)
+    {
+        $log->debug($self->hostname . " Ignored - Not using snmp to determine"
+                . " device type.");
+        return undef;
+    }
+
     $log->debug("Using snmp to determine the vendor.");
     ($snmp, $snmp_error) = Net::SNMP->session(
                         -hostname   =>  $self->hostname,
@@ -1397,8 +1611,8 @@ sub snmp_get_description {
                     );
     if (not $snmp)
     {
-        $log->warn("Error getting vendor using snmp connecting to "
-                    . $self->hostname . " Error: $snmp_error");
+        $log->warn($self->hostname . " - Error determining vendor using snmp.");
+        return undef;
     }
 
     # sysDescr.0
@@ -1412,8 +1626,7 @@ sub snmp_get_description {
     };
     if ($@)
     {
-        $log->warn($self->hostname . " - Error getting snmp info.");
-        $log->warn($self->hostname . " - $@");
+        $log->warn($self->hostname . " - Error getting snmp info - $@.");
         undef $snmp_result;
     }
 
@@ -1460,30 +1673,46 @@ sub console_get_description {
         }
 
 
-        if ($self->admin_rights)
+        # XXX
+        # I know hp will fail if you try to "show ver" and not admin.
+        # However, cisco will work.  Maybe we should try it anyway...
+        if ($self->admin_status)
         {
-            $session->expect(MEDIUM_TIMEOUT, [eval $expect_show_version_cmd ]
-                                           ,  eval $expect_timeout_cmd);
-            $session->expect(MEDIUM_TIMEOUT, []);
-            $result = $session->after();
-            
+            $session->expect(MEDIUM_TIMEOUT, eval $expect_show_version_cmd
+                                           , eval $expect_timeout_cmd);
+            $session->expect(MEDIUM_TIMEOUT, eval $expect_get_priv_console_output
+                                           , eval $expect_timeout_cmd);
+            if ($command_failed)
+            {
+                $log->warn($self->hostname . " - Failed"
+                            . " - Unable to show version via cli.");
+            }
+            $result = $session->before();
+            $log->debug($self->hostname 
+                        . " - Got console description - '$result'");
+        }
+        else
+        {
+            $log->warn($self->hostname . " - Failed"
+                            . " - Unable to show version via cli");
         }
     }
 
-    if ($result =~ /[iI]mage\s*stamp/)
-    {
-        $processed_result = "HP";
-    }
-    elsif ($result =~ /cisco/i)
-    {
-        $processed_result = "Cisco";
-    }
-    else
-    {
-        $processed_result = "";
-    }
+#    if ($result =~ /[iI]mage\s*stamp/)
+#    {
+#        $processed_result = "HP";
+#    }
+#    elsif ($result =~ /cisco/i)
+#    {
+#        $processed_result = "Cisco";
+#    }
+#    else
+#    {
+#        $processed_result = "";
+#    }
 
-    return $processed_result;
+#    return $processed_result;
+    return $result;
 }
 
 
@@ -1503,9 +1732,9 @@ sub get_admin_rights {
     my $self     = shift;
     my $session  = $self->session;
     my $password = $self->enable_password;
-    my $log      = Log::Log4perl->get_logger("Net::Autoconfig");
-    my $command_failed;       # indicates of the command failed.
-    my $already_enabled;      # indicates if already in admin mode
+    my $log      = Log::Log4perl->get_logger( ref($self) );
+    local $command_failed;       # indicates of the command failed.
+    local $connected_to_device;  # Added so eval statements don't generate errors
     my @expect_commands;      # the commands to run on the device
 
     $log->debug("Using default get_admin_rights method.");
@@ -1535,33 +1764,41 @@ sub get_admin_rights {
     # verify priv mode
     ####################
     push(@expect_commands, [
-                            eval $expect_enable_cmd,
-                            eval $expect_already_enabled_cmd,
+                            _eval($expect_enable_cmd, $self),
+#                            eval $expect_already_enabled_cmd,
+                            _eval($expect_priv_mode_cmd, $self),
                     ]);
     push(@expect_commands, [
-                            eval $expect_enable_passwd_cmd,
+                            _eval($expect_enable_passwd_cmd, $self),
+                            _eval($expect_priv_mode_cmd, $self),
                     ]);
     push(@expect_commands, [
-                            eval $expect_priv_mode_cmd,
+                            _eval($expect_priv_mode_cmd, $self),
                     ]);
 
     foreach my $command (@expect_commands)
     {
-        $self->session->expect(MEDIUM_TIMEOUT, @$command, eval $expect_timeout_cmd);
+        $self->session->expect(MEDIUM_TIMEOUT, @$command, _eval($expect_timeout_cmd, $self));
+        if ($log->level == $TRACE)
+        {
+            $log->trace("Expect matching before: " . $session->before);
+            $log->trace("Expect matching match : " . $session->match);
+            $log->trace("Expect matching after : " . $session->after);
+        }
         if ($command_failed) {
             $log->warn("Command failed.");
             $log->debug("Failed command(s): " . @$command);
             $self->admin_status(FALSE);
             return "Enable command failed.";
         }
-        elsif ($already_enabled)
+        elsif ($self->admin_status)
         {
-            $log->info("Already have admin privileges");
+            $log->info($self->hostname
+                        . " - Administrative privileges granted");
             last;
         }
     }
 
-    $self->admin_status(TRUE);
     return;
 }
 
@@ -1581,7 +1818,7 @@ sub get_admin_rights {
 sub disable_paging {
     my $self = shift;
     my $session;         # the object's expect session
-    my $log           = Log::Log4perl->get_logger("Net::Autoconfig");
+    my $log           = Log::Log4perl->get_logger( ref($self) );
     my $command_failed;  # a flag to indicate if the command failed
     my @commands;        # an array of commands to execute
 
@@ -1600,7 +1837,7 @@ sub disable_paging {
         return "Failed - paging command timed out";
     }
 
-    $session->send("\n");
+#    $session->send("\n");
 
     $log->debug("Paging disabled.");
 
@@ -1618,17 +1855,17 @@ sub disable_paging {
 ########################################
 sub end_session {
     my $self = shift;
-    my $log  = Log::Log4perl->get_logger("Net::Autoconfig");
+    my $log  = Log::Log4perl->get_logger( ref($self) );
 
     if ($self->session)
     {
-        $log->info("Terminating session for '" . $self->hostname . "'");
+        $log->info($self->hostname . " - Terminating session");
         $self->session->soft_close();
         $self->session(FALSE);
     }
     else
     {
-        $log->info("No session to terminate for '" . $self->hostname . "'");
+        $log->info($self->hostname . " - No session to terminate");
     }
     return;
 }
@@ -1658,13 +1895,13 @@ sub error_end_session {
 
     if ($self->session)
     {
-        $log->warn("Terminating session for '" . $self->hostname . "'");
+        $log->warn($self->hostname . " - Terminating session");
         $self->session->soft_close();
         $self->session(FALSE);
     }
     else
     {
-        $log->info("No session to terminate for '" . $self->hostname . "'");
+        $log->info($self->hostname . " - No session to terminate");
     }
     return;
 }
@@ -1685,19 +1922,19 @@ sub error_end_session {
 ########################################
 sub replace_command_variables {
     my $self    = shift;
-    my $log     = Log::Log4perl->get_logger( $self );
+    my $log     = Log::Log4perl->get_logger( ref($self) );
     my $cmd     = shift; # The command hash
     my $old_cmd;         # The command with variables that need replacing
     my $new_cmd;         # new string with variables replaced
 
     if ( not $cmd )
     {
-        $log->warn("No command hash reference passed.");
+        $log->warn($self->hostname . " - no command hash reference passed.");
         return "No comand hash reference passed.";
     }
     elsif ( not ref($cmd) eq 'HASH' )
     {
-        $log->warn("Command passed, but it was not a hash reference.");
+        $log->warn($self->hostnaem . " - command passed, but it was not a hash reference.");
         return "Command passed, but it was not a hash reference.";
     }
 
@@ -1706,7 +1943,7 @@ sub replace_command_variables {
     # Do some sanity checking
     if ( not $old_cmd )
     {
-        $log->info("No command specified.  Using \"\".");
+        $log->info($self->hostname . " - no command specified.  Using \"\".");
         $old_cmd = "";
         $new_cmd = $old_cmd;
     }
@@ -1720,23 +1957,23 @@ sub replace_command_variables {
         my $replacement = $self->get($1);
         if (defined $replacement)
         {
-            $log->trace("Replacing '$1' with '$replacement' for cmd "
-                        . "'$old_cmd' for device " . $self->hostname);
+            $log->trace($self->hostname . "Replacing '$1' with '$replacement'"
+                        . " for cmd '$old_cmd'");
             $new_cmd =~ s/\$$1/$replacement/;
         }
         else
         {
             if ( $cmd->{required} )
             {
-                my $message = "'$1' not defined for required command "
-                              . "'$old_cmd' for " . $self->hostname;
+                my $message = $self->hostname . " - '$1' not defined"
+                              . " for required command '$old_cmd'";
                 $log->warn( $message );
                 return $message;
             }
             else
             {
-                $log->info("'$1' not defined for optinal command "
-                            . "'$old_cmd' for " . $self->hostname);
+                $log->info($self->hostname . " - '$1' not defined for"
+                            . " optinal command '$old_cmd'");
             }
         }
     }
@@ -1755,8 +1992,8 @@ sub replace_command_variables {
     {
         $cmd->{cmd} =~ s/\\t/\t/g;
         $cmd->{cmd} =~ s/\\n/\n/g;
-        $log->trace("\$cmd->{cmd} after replacing tabs and newlines '"
-                    . $cmd->{cmd} . "'");
+        $log->trace($self->hostname . " - \$cmd->{cmd} after replacing"
+                    . " tabs and newlines = '" . $cmd->{cmd} . "'");
     }
     return undef;
 }
@@ -1767,8 +2004,43 @@ sub replace_command_variables {
 ############################################################
 
 ########################################
-# _host_not_reachable
+# _connected
 # private method
+#
+# Accessor
+#   Returns the connection status (TRUE/FALSE)
+#
+# Mutator
+#   Sets the connection status to TRUE or FALSE
+#   any perl "true" value => TRUE
+#   any perl "false" value => FALSE
+#   Returns undef
+########################################
+sub _connected {
+    my $self   = shift;
+    my $status = shift;
+    my $log    = Log::Log4perl->get_logger( ref($self) );
+
+    if ( defined $status )
+    {
+        if ( $status )
+        {
+            $self->set('connected', TRUE);
+            $log->trace($self->hostname . " - Setting connected status to TRUE");
+        }
+        else
+        {
+            $self->set('connected', FALSE);
+            $log->trace($self->hostname . " - Setting connected status to FALSE");
+        }
+    }
+
+    return defined $status ? undef : $self->{'connected'};
+}
+
+########################################
+# _host_not_reachable
+# private function
 #
 # Ping the specified hostname / ip address.
 # 
@@ -1778,7 +2050,7 @@ sub replace_command_variables {
 ########################################
 sub _host_not_reachable {
     my $hostname = shift;
-    my $log      = Log::Log4perl->get_logger("Net::Autoconfig");
+    my $log      = Log::Log4perl->get_logger(__PACKAGE__);
     my $ping;    # Ping object
 
     if (not $hostname)
@@ -1793,6 +2065,12 @@ sub _host_not_reachable {
         $log->error("Net::Ping Failed - $@");
         $log->error("Connection to '$hostname' failed.");
         return TRUE;
+    }
+
+    # If using a console server, extract the console server
+    # hostname so ping doesn't fail.
+    if ($hostname =~ /.*\@(.*)/) {
+        $hostname = $1;
     }
         
     if ($ping->ping($hostname))
@@ -1811,7 +2089,7 @@ sub _host_not_reachable {
 
 ########################################
 # _get_vendor_from_string
-# private method
+# private function
 #
 # Given a string, search through it
 # to determine the manufacturer of the
@@ -1830,7 +2108,7 @@ sub _get_vendor_from_string {
     my $string         = shift;
     my $vendors        = VENDORS_REGEX;      # a hash ref of regex => vendors
     my $device_model;  # a string that links to the module for that device type
-    my $log            = Log::Log4perl->get_logger("Net::Autoconfig");
+    my $log            = Log::Log4perl->get_logger(__PACKAGE__);
 
     (defined $string) or $string = "";
 
@@ -1858,8 +2136,8 @@ sub _get_vendor_from_string {
 }
 
 ########################################
-# _get_model_from_string_
-# private method
+# _get_model_from_string
+# private function
 #
 # Given a string, search through it
 # to determine the model of the
@@ -1890,7 +2168,7 @@ sub _get_model_from_string {
     my $generic_models  = GENERIC_DEVICE_MODEL_REGEX;
     my $all_types       = ALL_TYPES_MODEL_HASH;
     my $models          = []; # The array ref of models this device matches
-    my $log             = Log::Log4perl->get_logger("Net::Autoconfig");
+    my $log             = Log::Log4perl->get_logger(__PACKAGE__);
 
     if (not $string)
     {
@@ -1942,7 +2220,7 @@ sub _get_model_from_string {
 
 ########################################
 # _invalid_session
-# private method
+# private function
 #
 # Determine if this is a valid session.
 # We're using expect, so it has to be an
@@ -1955,25 +2233,83 @@ sub _get_model_from_string {
 ########################################
 sub _invalid_session {
     my $session = shift;
+    my $log     = Log::Log4perl->get_logger(__PACKAGE__);
 
     if (not defined $session)
     {
+        $log->debug("Invalid Session - FAILURE - Session not defined");
         return TRUE;
     }
     
     if (not ref($session))
     {
+        $log->debug("Invalid Session - FAILURE - Session not a reference");
         return TRUE;
     }
     
     if (not ref($session) eq 'Expect')
     {
+        $log->debug("Invalid Session - FAILURE - Session not an Expect.pm reference");
         return TRUE;
     }
     else
     {
+        $log->debug("Invalid Session - SUCCESS - Valid Session");
         return;
     }
+}
+
+########################################
+# _eval
+# private method
+#
+# This is used to evaluate strings/expressions at run-time
+# and report any errors.  Mainly  used for eval'ing
+# expect commands.
+#
+# Call eval and return the result.
+# Log any eval errors.
+# Assumes the result will be scalar, i.e. a 
+# reference or a string.
+########################################
+sub _eval {
+    my $string = shift;
+    my $self   = shift;
+    my $log    =  Log::Log4perl->get_logger(__PACKAGE__);
+    my $session;
+
+    $log->trace("EVAL - String = '$string'");
+
+    if ($self)
+    {
+        $session = $self->session;
+        if (not $session)
+        {
+            $log->warn($self->hostname . " - EVAL - ERROR - Session not defined.");
+            return;
+        }
+    }
+    else
+    {
+        undef $self;
+        undef $session;
+        $log->debug("EVAL - ERROR - \$self not defined");
+        $log->debug("EVAL - ERROR - \$session not defined.");
+    }
+
+    my $result = eval $string;
+
+    if ($@)
+    {
+        $log->error("EVAL - ERROR - $@");
+        return;
+    }
+    else
+    {
+        $log->debug("EVAL - SUCCESS");
+    }
+
+    return $result;
 }
 
 
@@ -2235,31 +2571,92 @@ values to whatever you want.
 
 =item model()
 
+The device class in perl module format.
+
+E.g. A cisco device would have "Net::Autoconfig::Device::Cisco"
+
 =item vendor()
+
+The vendor name.
+
+E.g. A hp device would have "HP".  A Cisco device would have "Cisco".
 
 =item hostname()
 
+The hostname of the device.
+
 =item username()
+
+The username to access the device.
 
 =item password()
 
+The password used to access the device.
+
 =item provision()
+
+Whether this device is to be configured via
+a console server.
 
 =item admin_status()
 
-=item console_username()
+TRUE means that admin priviledges have been obtained on the device.
+
+FALSE means that admin priviledges have B<not> been obtained.
 
 =item enable_password()
 
+The password to obtain administrative priviledges on the device.
+
+=item console_username()
+
+The username to connect to the console server.  This is only
+to gain access to the console server, not the device attached
+to it.  You're welcome to make them the same, but they don't
+have to be.  If not specified, it will use the device username.
+
+=item console_password()
+
+The password to connect to the console server.  This is used
+in conjuction with console_username to gain access to the
+console server.  If not specified, it will use the device password.
+
+=item console_hostname()
+
+The hostname of the console server.  This is
+different than the hostname.  The hostname can
+be tty5@console1.  console_hostname would be "console1"
+
+=item console_tty()
+
+The tty/interface on the console that the device
+connects to.  If the hostname were tty5@console1,
+The console_tty would be "tty5".
+
 =item snmp_community()
+
+The snmp version 2 community string.
 
 =item snmp_version()
 
+The snmp version to use.  Currently only supports version 2.
+
 =item session()
+
+Returns a reference to the current session.
 
 =item access_method()
 
+How are we going to connect to the device.
+
+E.g. ssh
+
 =item access_cmd()
+
+What command are we going to use to connect to
+the device.
+
+E.g. /usr/bin/ssh
 
 =back
 

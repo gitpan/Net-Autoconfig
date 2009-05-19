@@ -1,5 +1,15 @@
 Revision history for Perl extension Net::Autoconfig.
 
+1.13.1 Fri May 15 4:25:00 2009
+    - Fixing unbuffered console server timeout bug
+    - Adding new "<same_as [device]>" template command.
+      Permits using the same set of commands for different
+      device classes without having to copy and paste.
+    - Updating cisco device classifications.  It turns out
+      that the c3560/3560G  use a different image than the 3560E
+    - Adding logging/debugging for expect commands
+    - Adding new method to check for invalid cmd evals.
+
 1.12.2 Thu Jan 29 11:39:53 2009
     - Changing versioning method
     - Now requires perl >= 5.10.0
